@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Windows Dynamic Island</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+
+        body {
+            background-color: transparent;
+            display: flex;
+            justify-content: flex-end;
+            align-items: flex-end;
+            height: 100vh;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        .island-panel {
+            background: rgba(30, 30, 30, 0.85);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            width: 380px;
+            padding: 20px;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+
+            transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transform: translateY(20px) scale(0.95);
+            opacity: 0;
+        }
+
+        .island-panel.active {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+        }
+
+        /* Grid de Botões - Configurado para 3 colunas padrão do Windows */
+        .toggles-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .toggle-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 12px 5px;
+            text-align: center;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid transparent;
+        }
+
+        .toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .toggle-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Cor de destaque quando a função estiver ligada */
+        .toggle-btn.is-on {
+            background: #4CC2FF;
+            color: black;
+        }
+
+        .icon {
+            font-size: 22px;
+        }
+
+        .label {
+            font-size: 11px;
+            font-weight: 600;
+            text-align: center;
+            line-height: 1.2;
+        }
+
+        /* Sliders de Brilho e Volume */
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 12px 15px;
+            border-radius: 10px;
+        }
+
+        input[type=range] {
+            flex: 1;
+            -webkit-appearance: none;
+            background: rgba(255, 255, 255, 0.2);
+            height: 4px;
+            border-radius: 2px;
+            outline: none;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #4CC2FF;
+            cursor: pointer;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Barra de navegação para outras configurações */
+        .advanced-settings {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 12px 0;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .advanced-settings:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .settings-text {
+            margin-left: 90px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .settings-arrow {
+            margin-right: 70px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="island-panel" id="dynamicIsland">
+        <div class="toggles-grid">
+            <div class="toggle-btn is-on" data-action="wifi">
+                <span class="icon">📶</span>
+                <span class="label">Wi-Fi</span>
+            </div>
+            <div class="toggle-btn is-on" data-action="bluetooth">
+                <span class="icon">🛜</span>
+                <span class="label">Bluetooth</span>
+            </div>
+            <div class="toggle-btn" data-action="airplane">
+                <span class="icon">✈️</span>
+                <span class="label">Modo avião</span>
+            </div>
+            <div class="toggle-btn" data-action="accessibility">
+                <span class="icon">🚹</span>
+                <span class="label">Acessibilidade</span>
+            </div>
+            <div class="toggle-btn" data-action="battery_saver">
+                <span class="icon">🔋</span>
+                <span class="label">Economia de energia</span>
+            </div>
+            <div class="toggle-btn" data-action="live_captions">
+                <span class="icon">💬</span>
+                <span class="label">Legendas ao vivo</span>
+            </div>
+            <div class="toggle-btn" data-action="night_light">
+                <span class="icon">🌙</span>
+                <span class="label">Luz noturna</span>
+            </div>
+            <div class="toggle-btn" data-action="mobile_hotspot">
+                <span class="icon">📡</span>
+                <span class="label">Hotspot móvel</span>
+            </div>
+            <div class="toggle-btn" data-action="nearby_share">
+                <span class="icon">🔄</span>
+                <span class="label">Compartilhamento</span>
+            </div>
+            <div class="toggle-btn" data-action="cast">
+                <span class="icon">📺</span>
+                <span class="label">Transmitir</span>
+            </div>
+            <div class="toggle-btn" data-action="project">
+                <span class="icon">📽️</span>
+                <span class="label">Projetar</span>
+            </div>
+        </div>
+
+        <div>
+            <div class="slider-container" style="margin-bottom: 10px;">
+                <span class="icon">☀️</span>
+                <input type="range" min="0" max="100" value="70" id="brightnessSlider">
+            </div>
+            <div class="slider-container">
+                <span class="icon">🔊</span>
+                <input type="range" min="0" max="100" value="50" id="volumeSlider">
+            </div>
+        </div>
+
+        <div class="advanced-settings" id="openSettings">
+            <span class="settings-text">Todas as Configurações</span>
+            <span class="settings-arrow">❯</span>
+        </div>
+    </div>
+
+    <script>
+        window.onload = () => {
+            setTimeout(() => {
+                document.getElementById('dynamicIsland').classList.add('active');
+            }, 100);
+        };
+
+        // Adiciona a lógica de clique e comunicação com o backend (C#)
+        document.querySelectorAll('.toggle-btn').forEach(btn => {
+            btn.addEventListener('click', function () {
+                // Alterna visualmente o estado ligado/desligado
+                this.classList.toggle('is-on');
+
+                // Pega a ação específica do botão clicado
+                const actionName = this.getAttribute('data-action');
+                const isNowOn = this.classList.contains('is-on');
+
+                // Envia a mensagem para o C# (WebView2)
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage({
+                        type: 'TOGGLE_SETTING',
+                        setting: actionName,
+                        state: isNowOn
+                    });
+                } else {
+                    // Fallback para testes direto no navegador web comum
+                    console.log(`Comando enviado: ${actionName} | Estado: ${isNowOn}`);
+                }
+            });
+        });
+
+        // Exemplo de como preparar os sliders para enviar dados ao C#
+        document.getElementById('volumeSlider').addEventListener('input', function (e) {
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({
+                    type: 'SET_VOLUME',
+                    value: e.target.value
+                });
+            }
+        });
+    </script>
+</body>
+
+</html>

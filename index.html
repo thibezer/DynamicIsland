@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Windows Dynamic Island</title>
+    <style>
+        /* =========================================
+           1. CONFIGURAÇÕES GERAIS E FONTES
+           ========================================= */
+        * {
+            box-sizing: border-box;
+            /* Garante que o padding não aumente o tamanho total do elemento */
+            margin: 0;
+            padding: 0;
+            /* Fonte oficial do Windows 11 para manter o visual nativo */
+            font-family: 'Segoe UI Variable', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+            /* Impede que o usuário selecione os textos sem querer ao clicar */
+        }
+
+        body {
+            background-color: transparent;
+            /* O fundo precisa ser transparente para o C# enxergar a área de trabalho */
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            /* Esconde a barra de rolagem (scroll) caso algo vaze da tela */
+            position: relative;
+        }
+
+        /* =========================================
+           2. EFEITO DE VIDRO FOSCO (ACRYLIC DO WINDOWS)
+           ========================================= */
+        .frosted-glass {
+            position: relative;
+            /* Cor de fundo do vidro. Os 3 primeiros números (20,20,20) são a cor quase preta. O 0.85 é a transparência (vai de 0 a 1) */
+            background-color: rgba(20, 20, 20, 0.85);
+
+            /* Textura de ruído (areia) para dar o efeito de vidro jateado premium */
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+
+            /* Intensidade do desfoque (blur) no que está atrás da janela. Quanto maior o 30px, mais embaçado fica */
+            backdrop-filter: blur(30px) saturate(180%);
+            -webkit-backdrop-filter: blur(30px) saturate(180%);
+
+            /* Borda contornando a ilha. 0.18 é a transparência da linha branca */
+            border: 1px solid rgba(255, 255, 255, 0.18);
+
+            /* Sombra ao redor da ilha para descolar do fundo (X, Y, Espalhamento, Cor) */
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            /* Corta qualquer luz ou item que tente passar para fora das bordas arredondadas */
+        }
+
+        /* =========================================
+           3. O BRILHO MÁGICO (LUZ DO MOUSE)
+           ========================================= */
+        .specular-highlight {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            /* Deixa os cliques passarem direto por essa camada de luz */
+
+            /* Cria uma bola de luz branca (raio de 20px) que segue o mouse. A opacidade é controlada pelo JavaScript */
+            background: radial-gradient(circle 220px at var(--mouse-x) var(--mouse-y), rgba(255, 255, 255, var(--light-opacity, 0)), transparent 85%);
+            z-index: 0;
+            /* Fica no fundo, atrás dos textos e botões */
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            /* Um leve reflexo permanente na linha de cima */
+            will-change: background;
+            /* Dica para o navegador processar a animação de luz mais rápido (Performance) */
+        }
+
+        /* Camada que segura os textos e ícones para que fiquem ACIMA da luz do mouse */
+        .content-layer {
+            position: relative;
+            z-index: 1;
+            display: inherit;
+            flex-direction: inherit;
+            align-items: inherit;
+            gap: inherit;
+            width: 100%;
+        }
+
+        /* =========================================
+           4. PAINEL GRANDE (MENU DE CONFIGURAÇÕES)
+           ========================================= */
+        .island-panel {
+            position: absolute;
+            bottom: 55px;
+            /* Distância da parte de baixo da tela */
+            left: 12px;
+            /* Distância da lateral esquerda da tela */
+            border-radius: 24px;
+            /* Arredondamento das pontas do menu grande */
+            width: 380px;
+            /* Largura total do menu expandido */
+            padding: 8px;
+            /* Espaço interno (respiro entre a borda e os botões) */
+            color: white;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            /* Distância entre os blocos (botões, sliders, rodapé) */
+
+            /* Animação da mola da Apple (quando o menu abre e fecha) */
+            transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transform: translateY(20px) scale(0.95);
+            /* Começa um pouco menor e mais para baixo */
+            opacity: 0;
+            /* Começa invisível */
+            pointer-events: none;
+            /* Desativa cliques quando invisível */
+        }
+
+        /* Classe que o JavaScript adiciona para fazer o painel aparecer */
+        .island-panel.active {
+            transform: translateY(0) scale(1);
+            /* Volta para o tamanho real na posição zero */
+            opacity: 1;
+            /* Fica 100% visível */
+            pointer-events: auto;
+            /* Reativa os cliques */
+        }
+
+        /* Grade de 3 colunas para alinhar os botões de Wi-Fi, Bluetooth, etc. */
+        .toggles-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            /* 3 colunas iguais */
+            gap: 6px;
+            /* Espaço entre os botões */
+            width: 100%;
+        }
+
+        /* Visual de cada botão quadrado de função */
+        .toggle-btn {
+            background: rgba(255, 255, 255, 0.03);
+            /* Fundo do botão desligado */
+            border-radius: 14px;
+            /* Arredondamento do botão */
+            padding: 14px 6px;
+            text-align: center;
+            cursor: pointer;
+            /* Muda o mouse para a mãozinha */
+            transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+            /* Suavidade ao passar o mouse */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            /* Espaço entre o ícone e o texto do botão */
+            border: 1px solid rgba(255, 255, 255, 0.02);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            /* Luz no topo do botão */
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Mini luz que segue o mouse apenas DENTRO do botão (Hover dinâmico) */
+        .toggle-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            background: radial-gradient(circle 30px at var(--mouse-x-btn, 50%) var(--mouse-y-btn, 50%), rgba(255, 255, 255, 0.1), transparent 100%);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .toggle-btn:hover::before {
+            opacity: 1;
+        }
+
+        /* Mostra a luzinha quando o mouse entra no botão */
+        .toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.07);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .toggle-btn:active {
+            transform: scale(0.93);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Efeito de "apertar" o botão (diminui tamanho) */
+
+        /* Visual do botão quando está LIGADO (Ativo) */
+        .toggle-btn.is-on {
+            background: rgba(255, 255, 255, 0.1);
+            color: #F6A733;
+            /* Cor laranja solicitada para o ícone ativo */
+            border: 1px solid rgba(246, 167, 51, 0.3);
+        }
+
+        .toggle-btn.is-on .label {
+            font-weight: 700;
+            /* Deixa o texto do botão ligado em negrito */
+        }
+
+        /* Estilo para painéis de ação especial (como o de Drop de Arquivo) */
+        .drop-panel {
+            position: absolute;
+            bottom: 45px;
+            left: 12px;
+            border-radius: 24px;
+            width: 320px;
+            padding: 16px;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transform: translateY(20px) scale(0.95);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        .drop-panel.active {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .drop-option {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 14px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .drop-option:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transform: scale(1.02);
+        }
+
+        .drop-option .icon-box {
+            width: 40px;
+            height: 40px;
+            background: rgba(246, 167, 51, 0.2);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #F6A733;
+        }
+
+        .icon {
+            font-size: 20px;
+            /* Tamanho dos ícones normais */
+        }
+
+        /* Estilo da Fonte Oficial de Ícones do Google (Material Symbols) */
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            font-size: 20px;
+        }
+
+        .label {
+            font-size: 11px;
+            /* Tamanho da letra nos botões */
+            font-weight: 500;
+            text-align: center;
+            line-height: 1.2;
+            letter-spacing: 0.2px;
+        }
+
+        /* =========================================
+           5. BARRAS DE VOLUME E BRILHO (SLIDERS)
+           ========================================= */
+        .sliders-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            /* Espaço entre as duas barras */
+            background: rgba(255, 255, 255, 0.05);
+            /* Fundo sutil atrás das barras */
+            padding: 12px;
+            border-radius: 16px;
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            /* Espaço entre o ícone, a barra e a porcentagem */
+        }
+
+        /* A "trilha" por onde a bolinha corre */
+        input[type=range] {
+            flex: 1;
+            /* Faz a barra ocupar todo o espaço restante */
+            -webkit-appearance: none;
+            background: rgba(255, 255, 255, 0.05);
+            height: 4px;
+            /* Grossura da barra */
+            border-radius: 2px;
+            outline: none;
+            transition: background 0.2s;
+        }
+
+        /* A bolinha do slider (o controlador) */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            /* Largura da bolinha */
+            height: 14px;
+            /* Altura da bolinha */
+            border-radius: 50%;
+            /* Deixa redonda */
+            background: #4CC2FF;
+            /* Cor da bolinha (Azul Windows) */
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+            transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.3);
+            /* Bolinha cresce quando passa o mouse */
+        }
+
+        /* =========================================
+           6. RODAPÉ (Botão de ir para Configurações)
+           ========================================= */
+        .advanced-settings {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 14px;
+            padding: 12px 16px;
+            width: 100%;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid rgba(255, 255, 255, 0.02);
+        }
+
+        .advanced-settings:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .advanced-settings:active {
+            transform: scale(0.98);
+        }
+
+        .settings-text {
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+
+        .settings-arrow {
+            font-size: 16px;
+            opacity: 0.6;
+            transition: transform 0.2s;
+            display: flex;
+            align-items: center;
+        }
+
+        .advanced-settings:hover .settings-arrow {
+            transform: translateX(3px);
+            /* A setinha dá um pulinho para o lado direito no hover */
+            opacity: 1;
+        }
+
+        /* =========================================
+           7. PÍLULA FLUTUANTE (A DYNAMIC ISLAND FECHADA)
+           ========================================= */
+        .mini-island {
+            position: absolute;
+            left: 12px;
+            /* Margem da borda da tela */
+            height: 40px;
+            /* Altura da pílula */
+            bottom: 4px;
+            /* Fica colada a 4px de distância do rodapé do sistema */
+            border-radius: 20px;
+            /* Como a altura é 40px, o radius 20px deixa ela perfeitamente redonda nas pontas */
+
+            width: fit-content;
+            /* A MÁGICA DA LARGURA: Estica o tamanho baseado no texto que tem dentro */
+            min-width: 150px;
+            /* Nunca fica menor que 150px (para não espremer os botões) */
+            max-width: 300px;
+            /* Nunca fica maior que 300px (para não invadir a tela do meio) */
+
+            color: white;
+            display: flex;
+            align-items: center;
+            padding: 0 24px 0 12px;
+            /* Padding de 24px na direita para manter o texto com o espaçamento ideal */
+            gap: 12px;
+            /* Distância entre a capa do álbum, o texto e os botões */
+            transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            pointer-events: auto;
+            z-index: 10;
+            /* Fica sempre por cima de outros elementos do HTML */
+        }
+
+        /* Esconde a pílula pequena quando o painel grande abre */
+        .mini-island.hidden {
+            opacity: 0;
+            transform: translateY(10px) scale(0.9);
+            pointer-events: none;
+        }
+
+        /* Capa do álbum de música na pílula */
+        .media-thumb {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            /* Capa levemente quadrada */
+            background: #333;
+            object-fit: cover;
+            /* Evita que a foto do álbum fique esticada/deformada */
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+        }
+
+        .media-controls-mini {
+            display: flex;
+            gap: 4px;
+            margin-left: auto;
+            margin-right: -14px;
+            /* Margem negativa puxa os ícones para perto da borda sem afetar o padding do texto */
+        }
+
+        /* Botõezinhos redondos de Play/Avançar na pílula */
+        .btn-mini {
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.8);
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.2s;
+        }
+
+        .btn-mini:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+    </style>
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+</head>
+
+<body>
+    <div class="mini-island frosted-glass" id="miniIsland" onclick="openIslandClick(event)" style="cursor:pointer;">
+        <div class="specular-highlight"></div>
+
+        <div class="content-layer">
+            <img class="media-thumb" id="mediaThumb" src="" style="display:none;" />
+            <span class="material-symbols-outlined" id="mediaIcon"
+                style="font-size: 20px; display:none; opacity: 0.8;">music_note</span>
+            <span class="material-symbols-outlined" id="notifIcon"
+                style="font-size: 20px; display:none; opacity: 0.8;">notifications</span>
+
+            <div
+                style="display: flex; flex-direction: column; justify-content: center; overflow: hidden; white-space: nowrap; flex: 1; min-width: 0;">
+                <span id="mainTitle"
+                    style="font-size: 12px; font-weight: 600; text-overflow: ellipsis; overflow: hidden; letter-spacing: 0.2px;">Carregando...</span>
+                <span id="subTitle"
+                    style="font-size: 10.5px; opacity: 0.6; text-overflow: ellipsis; overflow: hidden; margin-top: 1px;">Aguarde</span>
+            </div>
+
+            <div class="media-controls-mini" id="mediaControls" style="display: flex;">
+                <button class="btn-mini" onclick="event.stopPropagation(); sendMediaCommand('playPause')">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">play_pause</span>
+                </button>
+                <button class="btn-mini" onclick="event.stopPropagation(); sendMediaCommand('next')">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">skip_next</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAINEL DE OPÇÕES DE ARQUIVO (DROP ZONE) -->
+    <div class="drop-panel frosted-glass" id="dropPanel">
+        <div class="specular-highlight"></div>
+        <div class="content-layer" style="flex-direction: column;">
+            <div style="text-align: center; margin-bottom: 8px;">
+                <span style="font-size: 13px; font-weight: 600; opacity: 0.9;">Opções de Arquivo</span>
+                <div id="dropFileName" style="font-size: 10px; opacity: 0.5; margin-top: 4px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;"></div>
+            </div>
+            
+            <div class="drop-option" id="dropOptExcel" onclick="executeFileAction('excel')">
+                <div class="icon-box">
+                    <span class="material-symbols-outlined">table_chart</span>
+                </div>
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 12px; font-weight: 600;">Enviar para o Excel</span>
+                    <span style="font-size: 10px; opacity: 0.6;">Cria hiperlink na célula ativa</span>
+                </div>
+            </div>
+            
+            <div style="text-align: center; font-size: 10px; opacity: 0.4; margin-top: 4px;">
+                Clique na opção desejada
+            </div>
+        </div>
+    </div>
+
+    <div class="island-panel frosted-glass" id="dynamicIsland">
+        <div class="specular-highlight"></div>
+
+        <div class="content-layer" style="flex-direction: column;">
+            <div class="toggles-grid">
+                <div class="toggle-btn is-on" data-action="wifi"><span
+                        class="material-symbols-outlined">wifi</span><span class="label">Wi-Fi</span></div>
+                <div class="toggle-btn is-on" data-action="bluetooth"><span
+                        class="material-symbols-outlined">bluetooth</span><span class="label">Bluetooth</span></div>
+                <div class="toggle-btn" data-action="airplane"><span
+                        class="material-symbols-outlined">flight</span><span class="label">Modo avião</span></div>
+                <div class="toggle-btn" data-action="accessibility"><span
+                        class="material-symbols-outlined">accessibility_new</span><span
+                        class="label">Acessibilidade</span></div>
+                <div class="toggle-btn" data-action="battery_saver"><span
+                        class="material-symbols-outlined">battery_saver</span><span class="label">Economia</span></div>
+                <div class="toggle-btn" data-action="live_captions"><span
+                        class="material-symbols-outlined">closed_caption</span><span class="label">Legendas</span></div>
+                <div class="toggle-btn" data-action="night_light"><span
+                        class="material-symbols-outlined">nightlight</span><span class="label">Luz noturna</span></div>
+                <div class="toggle-btn" data-action="mobile_hotspot"><span
+                        class="material-symbols-outlined">wifi_tethering</span><span class="label">Hotspot</span></div>
+                <div class="toggle-btn" data-action="nearby_share"><span
+                        class="material-symbols-outlined">near_me</span><span class="label">Compartilhar</span></div>
+                <div class="toggle-btn" data-action="cast"><span class="material-symbols-outlined">cast</span><span
+                        class="label">Transmitir</span></div>
+                <div class="toggle-btn" data-action="project"><span class="material-symbols-outlined">dvr</span><span
+                        class="label">Projetar</span></div>
+            </div>
+
+            <div class="sliders-group">
+                <div class="slider-container">
+                    <span class="material-symbols-outlined" style="font-size: 20px; opacity: 0.8;">light_mode</span>
+                    <input id="brightnessSlider" max="100" min="0" type="range" value="70" />
+                    <span id="brightnessVal"
+                        style="font-size: 11px; width: 30px; text-align: right; opacity: 0.6; font-weight: 500;">70%</span>
+                </div>
+                <div class="slider-container">
+                    <span class="material-symbols-outlined" style="font-size: 20px; opacity: 0.8;">volume_up</span>
+                    <input id="volumeSlider" max="100" min="0" type="range" value="50" />
+                    <span id="volumeVal"
+                        style="font-size: 11px; width: 30px; text-align: right; opacity: 0.6; font-weight: 500;">50%</span>
+                </div>
+            </div>
+
+            <div class="advanced-settings" id="openSettings">
+                <span class="settings-text">Todas as Configurações</span>
+                <span class="settings-arrow"><span class="material-symbols-outlined"
+                        style="font-size: 18px;">chevron_right</span></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* --- RASTREAMENTO E ANIMAÇÃO DA LUZ DO MOUSE --- */
+        let mouseX = 0, mouseY = 0;
+        let currentX = 0, currentY = 0;
+        let targetOpacity = 0;
+        let currentOpacity = 0;
+        const lerpFactor = 0.06;
+
+        document.addEventListener('mousemove', e => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        document.querySelectorAll('.frosted-glass').forEach(glass => {
+            glass.addEventListener('mouseenter', () => targetOpacity = 0.12);
+            glass.addEventListener('mouseleave', () => targetOpacity = 0);
+        });
+
+        function updateSpecularPosition() {
+            currentX += (mouseX - currentX) * lerpFactor;
+            currentY += (mouseY - currentY) * lerpFactor;
+            currentOpacity += (targetOpacity - currentOpacity) * 0.15;
+
+            document.querySelectorAll('.frosted-glass').forEach(glass => {
+                const rect = glass.getBoundingClientRect();
+                const x = currentX - rect.left;
+                const y = currentY - rect.top;
+                glass.style.setProperty('--mouse-x', `${x}px`);
+                glass.style.setProperty('--mouse-y', `${y}px`);
+                glass.style.setProperty('--light-opacity', currentOpacity);
+            });
+
+            document.querySelectorAll('.toggle-btn').forEach(btn => {
+                const rect = btn.getBoundingClientRect();
+                const x = mouseX - rect.left;
+                const y = mouseY - rect.top;
+                btn.style.setProperty('--mouse-x-btn', `${x}px`);
+                btn.style.setProperty('--mouse-y-btn', `${y}px`);
+            });
+
+            requestAnimationFrame(updateSpecularPosition);
+        }
+        updateSpecularPosition();
+
+        /* --- LÓGICA DE DRAG & DROP --- */
+        // O WebView2 (HwndHost) captura drag events no nível Win32. 
+        // O JS detecta o dragenter e avisa o C# para trazer o hitTestBorder pra frente.
+        const dropPanel = document.getElementById('dropPanel');
+        let _dragEnterCounter = 0; // Contador para evitar duplicatas do dragenter/dragleave
+
+        window.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            _dragEnterCounter++;
+            if (_dragEnterCounter === 1 && window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({ type: 'SET_DROP_ZONE', active: true });
+            }
+        });
+
+        window.addEventListener('dragleave', (e) => {
+            _dragEnterCounter--;
+            if (_dragEnterCounter <= 0) {
+                _dragEnterCounter = 0;
+            }
+        });
+
+        // Previne o comportamento padrão de "abrir arquivo" no WebView2
+        window.addEventListener('dragover', (e) => { e.preventDefault(); });
+        window.addEventListener('drop', (e) => { e.preventDefault(); _dragEnterCounter = 0; });
+
+        function showDropPanel(fileName) {
+            dropPanel.classList.add('active');
+            const nameEl = document.getElementById('dropFileName');
+            if (nameEl && fileName) nameEl.textContent = fileName;
+        }
+
+        function hideDropPanel() {
+            dropPanel.classList.remove('active');
+            const nameEl = document.getElementById('dropFileName');
+            if (nameEl) nameEl.textContent = '';
+        }
+
+        function executeFileAction(action) {
+            // Notifica o C# qual ação foi escolhida pelo usuário
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({ type: 'FILE_ACTION', action: action });
+            }
+            hideDropPanel();
+        }
+
+        /* --- COMUNICAÇÃO COM O C# --- */
+        function handleIslandMessage(event) {
+            const data = event.data;
+
+            if (data.type === 'INIT_VALUES') {
+                document.getElementById('volumeSlider').value = data.volume;
+                document.getElementById('brightnessSlider').value = data.brightness;
+                document.getElementById('volumeVal').textContent = data.volume + '%';
+                document.getElementById('brightnessVal').textContent = data.brightness + '%';
+            } 
+            else if (data.type === 'ISLAND_CONTENT') {
+                const thumb = document.getElementById('mediaThumb');
+                const mediaIcon = document.getElementById('mediaIcon');
+                const notifIcon = document.getElementById('notifIcon');
+                const mediaControls = document.getElementById('mediaControls');
+
+                document.getElementById('mainTitle').textContent = data.title;
+                document.getElementById('subTitle').textContent = data.subtitle;
+
+                if (data.mode === 'music') {
+                    mediaControls.style.display = 'flex';
+                    notifIcon.style.display = 'none';
+                    if (data.thumbnail) {
+                        thumb.src = "data:image/png;base64," + data.thumbnail;
+                        thumb.style.display = "block";
+                        mediaIcon.style.display = "none";
+                    } else {
+                        thumb.style.display = "none";
+                        mediaIcon.style.display = "block";
+                    }
+                } else if (data.mode === 'notification') {
+                    mediaControls.style.display = 'none';
+                    thumb.style.display = 'none';
+                    mediaIcon.style.display = 'none';
+                    notifIcon.style.display = 'block';
+                }
+            } 
+            else if (data.type === 'SET_ISLAND_STATE') {
+                if (data.state === 'open') {
+                    document.getElementById('dynamicIsland').classList.add('active');
+                } else {
+                    document.getElementById('dynamicIsland').classList.remove('active');
+                }
+            }
+            // Recebe ordem para abrir/fechar o painel de drop
+            else if (data.type === 'SET_DROP_ZONE') {
+                if (data.active) {
+                    showDropPanel();
+                } else {
+                    hideDropPanel();
+                }
+            }
+            // Recebe o arquivo solto — mostra o nome e mantém o painel aberto para o usuário escolher a ação
+            else if (data.type === 'FILE_RECEIVED') {
+                showDropPanel(data.fileName);
+            }
+        }
+
+        if (window.chrome && window.chrome.webview && window.chrome.webview.addEventListener) {
+            window.chrome.webview.addEventListener('message', handleIslandMessage);
+        }
+
+        /* --- EVENTOS DE INTERFACE --- */
+        document.querySelectorAll('.toggle-btn').forEach(btn => {
+            btn.addEventListener('click', function () {
+                this.classList.toggle('is-on');
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage({
+                        type: 'TOGGLE_SETTING',
+                        setting: this.getAttribute('data-action'),
+                        state: this.classList.contains('is-on')
+                    });
+                }
+            });
+        });
+
+        document.getElementById('volumeSlider').addEventListener('input', function (e) {
+            document.getElementById('volumeVal').textContent = e.target.value + '%';
+            if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ type: 'SET_VOLUME', value: e.target.value });
+        });
+
+        document.getElementById('brightnessSlider').addEventListener('input', function (e) {
+            document.getElementById('brightnessVal').textContent = e.target.value + '%';
+            if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ type: 'SET_BRIGHTNESS', value: e.target.value });
+        });
+
+        document.getElementById('openSettings').addEventListener('click', function () {
+            if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ type: 'TOGGLE_SETTING', setting: 'open_settings', state: true });
+        });
+
+        function sendMediaCommand(cmd) {
+            if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ type: 'MEDIA_COMMAND', command: cmd });
+        }
+
+        function openIslandClick(e) {
+            if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ type: 'OPEN_ISLAND' });
+        }
+
+        const observer = new ResizeObserver(entries => {
+            for (let entry of entries) {
+                const width = entry.borderBoxSize[0].inlineSize;
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage({ type: 'UPDATE_WIDTH', width: width });
+                }
+            }
+        });
+        observer.observe(miniIsland);
+
+        // --- HANDSHAKE ---
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage({ type: 'JS_READY' });
+        }
+
+        // Simulação
+        if (!window.chrome || !window.chrome.webview) {
+            console.log("Simulation Mode");
+            window.chrome = { webview: { postMessage: (m) => console.log(m), addEventListener: () => {} } };
+            const mock = [{ type: 'ISLAND_CONTENT', mode: 'music', title: 'Song', subtitle: 'Artist' }];
+            setTimeout(() => handleIslandMessage({ data: mock[0] }), 1000);
+        }
+    </script>
+</body>
+</html>
