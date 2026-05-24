@@ -96,6 +96,10 @@ namespace DynamicIslandWindows
 
             // 2. Inicializar o WebView2
             await webView.EnsureCoreWebView2Async(null);
+            
+            // CRÍTICO: Desativa o drop target do Chromium para forçar o bubble up para a Window WPF
+            webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            webView.AllowExternalDrop = false;
 
             // Forçar o fundo do WebView2 a ser transparente
             webView.DefaultBackgroundColor = System.Drawing.Color.Transparent;
@@ -104,11 +108,18 @@ namespace DynamicIslandWindows
             webView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
             webView.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
 
+            // Desativar menus de contexto e outras interferências
+            webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            webView.CoreWebView2.Settings.AreDevToolsEnabled = false; // Opcional, para evitar F12
+            webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
+
             // 4. Carregar o arquivo HTML
             string currentDirectory = AppDomain.CurrentDomain.BaseDirectory;
             string htmlPath = Path.Combine(currentDirectory, "index.html");
-            
             webView.CoreWebView2.Navigate(htmlPath);
+
+            // 5. Ajuste inicial de layout
+            UpdateUILayout();
 
             // Iniciar timers e listeners
             SetupHoverTimer();
@@ -279,29 +290,21 @@ namespace DynamicIslandWindows
                 double logicalY = p.Y / dpiY;
                 
                 // --- LÓGICA DE DETECÇÃO DO MOUSE (HIT-TEST) ---
-                // O WebView2 é transparente, então precisamos saber manualmente se o mouse está sobre a pílula visual.
                 
-                // 0. Se estiver arrastando um arquivo, não aciona a lógica de abrir configurações
-                if (_isDraggingFile)
-                {
-                    return; // Apenas ignora o processamento do hover normal, mas mantém o timer rodando
-                }
-
                 // 1. hitWidth/Height: Define a área "quente" onde o mouse ativa a ilha.
-                // O hitTestBorder no XAML já tem Margin="12,0,0,0", então NÃO somamos 12 aqui.
-                double hitWidth = _isIslandOpen ? this.Width : _miniIslandWidth;
-                double hitHeight = _isIslandOpen ? this.Height : 44; // 40px da pílula + 4px de margem inferior
-
-                // 2. inIslandZone: Verifica se o cursor está dentro do retângulo da pílula.
-                // Usamos this.Left diretamente pois o hitTestBorder já está com Margin=12 no XAML.
-                bool inIslandZone = logicalX >= this.Left && logicalX <= this.Left + hitWidth && 
-                                   logicalY >= this.Top + (this.Height - hitHeight) && logicalY <= this.Top + this.Height;
+                double hitWidth = _isIslandOpen ? 400 : _miniIslandWidth + 20;
+                double hitHeight = _isIslandOpen ? 600 : 60; 
+                
+                // 2. inIslandZone: Verifica se o cursor está dentro do retângulo visual
+                // Consideramos a margem de 12px definida no XAML
+                bool inIslandZone = logicalX >= this.Left + 12 && logicalX <= this.Left + 12 + hitWidth && 
+                                   logicalY >= this.Top + (this.Height - 12 - hitHeight) && logicalY <= this.Top + this.Height - 12;
 
                 // 3. Lógica de Hover (Abertura automática)
-                if (!_isIslandOpen && _currentMode == "notification" && inIslandZone)
+                if (!_isIslandOpen && _currentMode == "notification" && inIslandZone && !_isDraggingFile && !_isDropZoneActive)
                 {
                     _hoverCounter++;
-                    if (_hoverCounter >= 4) // Delay de 400ms (4 ticks de 100ms) para evitar aberturas acidentais
+                    if (_hoverCounter >= 4)
                     {
                         OpenIsland();
                         _hoverCounter = 0;
@@ -310,10 +313,18 @@ namespace DynamicIslandWindows
                 // 4. Fechamento automático ao tirar o mouse
                 else if (_isIslandOpen && !inIslandZone)
                 {
-                    CloseIsland();
-                    _hoverCounter = 0;
+                    _hoverCounter++;
+                    if (_hoverCounter >= 3) // Se ficar fora por 300ms
+                    {
+                        CloseIsland();
+                        _hoverCounter = 0;
+                    }
                 }
                 else if (!inIslandZone)
+                {
+                    _hoverCounter = 0;
+                }
+                else if (_isIslandOpen && inIslandZone)
                 {
                     _hoverCounter = 0;
                 }
@@ -341,46 +352,49 @@ namespace DynamicIslandWindows
             }
         }
 
-        /// Ativa o modo de arrasto: traz o hitTestBorder para frente do WebView2
         private void ActivateDropMode()
         {
-            if (_isDropZoneActive) return;
-            _isDropZoneActive = true;
             _isDraggingFile = true;
-
-            // Cancela qualquer timer de fechamento pendente
-            _dragLeaveTimer?.Stop();
-
-            // Expande o hitTestBorder para cobrir a janela inteira e traz para frente do WebView2
-            hitTestBorder.Width = this.Width;
-            hitTestBorder.Height = this.Height;
-            System.Windows.Controls.Panel.SetZIndex(hitTestBorder, 10);
+            _isDropZoneActive = true;
+            
+            UpdateUILayout();
 
             // Mostra o painel de opções no JS
             var msg = new { type = "SET_DROP_ZONE", active = true };
             webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(msg));
         }
 
-        /// Desativa o modo de arrasto: volta o hitTestBorder para trás do WebView2
         private void DeactivateDropMode()
         {
             _isDraggingFile = false;
             _isDropZoneActive = false;
             _dragLeaveTimer?.Stop();
 
-            // Retorna o hitTestBorder ao tamanho da pílula e para trás do WebView2
-            hitTestBorder.Width = _miniIslandWidth;
-            hitTestBorder.Height = 44;
-            System.Windows.Controls.Panel.SetZIndex(hitTestBorder, 0);
+            UpdateUILayout();
 
             // Fecha o painel no JS
             var msg = new { type = "SET_DROP_ZONE", active = false };
             webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(msg));
         }
 
-        private void hitTestBorder_DragEnter(object sender, DragEventArgs e)
+        private void Window_DragEnter(object sender, DragEventArgs e)
         {
-            // Cancela qualquer fechamento pendente (o cursor voltou)
+            _dragLeaveTimer?.Stop();
+
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                e.Effects = DragDropEffects.Link;
+                ActivateDropMode();
+            }
+            else
+            {
+                e.Effects = DragDropEffects.None;
+            }
+            e.Handled = true;
+        }
+
+        private void Window_DragOver(object sender, DragEventArgs e)
+        {
             _dragLeaveTimer?.Stop();
 
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
@@ -394,69 +408,47 @@ namespace DynamicIslandWindows
             e.Handled = true;
         }
 
-        private void hitTestBorder_DragOver(object sender, DragEventArgs e)
+        private void Window_Drop(object sender, DragEventArgs e)
         {
-            // Cancela qualquer fechamento pendente
+            Debug.WriteLine("WPF: Arquivo solto (Drop na Window)");
             _dragLeaveTimer?.Stop();
 
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                e.Effects = DragDropEffects.Link;
-            }
-            else
-            {
-                e.Effects = DragDropEffects.None;
-            }
-            e.Handled = true;
-        }
-
-        private void hitTestBorder_Drop(object sender, DragEventArgs e)
-        {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 string[]? files = (string[]?)e.Data.GetData(DataFormats.FileDrop);
                 if (files != null && files.Length > 0)
                 {
-                    // Salva o caminho do arquivo para quando o JS confirmar a ação
+                    Debug.WriteLine($"WPF: Arquivo recebido: {files[0]}");
                     _pendingDropFilePath = files[0];
 
-                    // Envia o nome do arquivo para o JS exibir as opções
                     var msgFile = new { type = "FILE_RECEIVED", fileName = System.IO.Path.GetFileName(files[0]) };
                     webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(msgFile));
                 }
             }
 
-            // Volta o hitTestBorder para trás (o painel de opções continua aberto no JS)
             _isDraggingFile = false;
-            hitTestBorder.Width = _miniIslandWidth;
-            hitTestBorder.Height = 44;
-            System.Windows.Controls.Panel.SetZIndex(hitTestBorder, 0);
+            _hoverCounter = -10; // Bloqueia hover temporariamente
             e.Handled = true;
         }
 
-        private void hitTestBorder_DragLeave(object sender, DragEventArgs e)
+        private void Window_DragLeave(object sender, DragEventArgs e)
         {
-            // Usa um timer de debounce para evitar falso positivo
-            // (quando o WPF muda ZIndex, às vezes dispara DragLeave fantasma)
             _dragLeaveTimer?.Stop();
             _dragLeaveTimer = new System.Windows.Threading.DispatcherTimer();
             _dragLeaveTimer.Interval = TimeSpan.FromMilliseconds(150);
             _dragLeaveTimer.Tick += (s, args) =>
             {
                 _dragLeaveTimer.Stop();
-                // Verifica se o cursor realmente saiu da janela
                 if (GetCursorPos(out POINT cursorPos))
                 {
-                    double dpiX = 1.0;
-                    double dpiY = 1.0;
+                    double dpiX = 1.0, dpiY = 1.0;
                     var source = PresentationSource.FromVisual(this);
                     if (source?.CompositionTarget != null)
                     {
                         dpiX = source.CompositionTarget.TransformToDevice.M11;
                         dpiY = source.CompositionTarget.TransformToDevice.M22;
                     }
-                    double lx = cursorPos.X / dpiX;
-                    double ly = cursorPos.Y / dpiY;
+                    double lx = cursorPos.X / dpiX, ly = cursorPos.Y / dpiY;
 
                     bool insideWindow = lx >= this.Left && lx <= this.Left + this.Width &&
                                         ly >= this.Top && ly <= this.Top + this.Height;
@@ -485,8 +477,10 @@ namespace DynamicIslandWindows
         private void OpenIsland()
         {
             _isIslandOpen = true;
-            hitTestBorder.Width = 380;
-            hitTestBorder.Height = 580;
+            _hoverCounter = 0;
+            
+            UpdateUILayout();
+
             var msg = new { type = "SET_ISLAND_STATE", state = "open" };
             webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(msg));
         }
@@ -494,10 +488,48 @@ namespace DynamicIslandWindows
         private void CloseIsland()
         {
             _isIslandOpen = false;
-            hitTestBorder.Width = _miniIslandWidth;
-            hitTestBorder.Height = 44;
+            _hoverCounter = 0;
+            
+            UpdateUILayout();
+
             var msg = new { type = "SET_ISLAND_STATE", state = "closed" };
             webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(msg));
+        }
+
+        private void UpdateUILayout()
+        {
+            try
+            {
+                double targetWidth = _miniIslandWidth + 40;
+                double targetHeight = 65;
+
+                if (_isIslandOpen)
+                {
+                    targetWidth = 405;
+                    targetHeight = 630;
+                }
+                else if (_isDropZoneActive)
+                {
+                    targetWidth = 350;
+                    targetHeight = 480;
+                }
+
+                // Ajusta o tamanho do WebView2 físico
+                webView.Width = targetWidth;
+                webView.Height = targetHeight;
+
+                // Ajusta o hit-test border para ser igual ao webView
+                hitTestBorder.Width = targetWidth;
+                hitTestBorder.Height = targetHeight;
+                hitTestBorder.IsHitTestVisible = true;
+                
+                // Garante que o fundo da janela seja transparente para cliques fora dessas áreas
+                mainGrid.Background = System.Windows.Media.Brushes.Transparent;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Erro ao atualizar layout: {ex.Message}");
+            }
         }
 
         private void CoreWebView2_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -588,6 +620,14 @@ namespace DynamicIslandWindows
                         // O JS avisou que está pronto. Agora enviamos os valores iniciais de volume/brilho.
                         SendInitialHardwareValues();
                     }
+                    else if (type == "OPEN_FILE_PICKER")
+                    {
+                        OpenManualFilePicker();
+                    }
+                    else if (type == "CLOSE_DROP_ZONE")
+                    {
+                        DeactivateDropMode();
+                    }
                     else if (type == "SET_DROP_ZONE")
                     {
                         bool active = root.GetProperty("active").GetBoolean();
@@ -603,14 +643,21 @@ namespace DynamicIslandWindows
                     }
                     else if (type == "FILE_ACTION")
                     {
-                        // O JS confirmou qual ação o usuário escolheu para o arquivo pendente
                         string action = root.GetProperty("action").GetString() ?? "";
+                        Debug.WriteLine($"JS: Ação de arquivo recebida: {action}");
+                        
                         if (_pendingDropFilePath != null)
                         {
                             string filePath = _pendingDropFilePath;
                             _pendingDropFilePath = null;
                             ProcessDroppedFile(filePath, action);
                         }
+                        else
+                        {
+                            Debug.WriteLine("C#: Erro - _pendingDropFilePath está nulo ao receber FILE_ACTION");
+                            MessageBox.Show("Ocorreu um erro: o caminho do arquivo foi perdido. Por favor, tente arrastar o arquivo novamente.", "Erro Dynamic Island", MessageBoxButton.OK, MessageBoxImage.Error);
+                        }
+                        
                         // Fecha o painel de drop
                         _isDropZoneActive = false;
                         var closeMsg = new { type = "SET_DROP_ZONE", active = false };
@@ -621,7 +668,42 @@ namespace DynamicIslandWindows
             catch { }
         }
 
-        // Método para ser chamado quando um arquivo é solto (pode ser via hook ou evento nativo)
+        private void OpenManualFilePicker()
+        {
+            try
+            {
+                var openFileDialog = new Microsoft.Win32.OpenFileDialog();
+                openFileDialog.Title = "Selecionar arquivo para Dynamic Island";
+                openFileDialog.Filter = "Todos os arquivos (*.*)|*.*";
+
+                if (openFileDialog.ShowDialog() == true)
+                {
+                    string filePath = openFileDialog.FileName;
+                    Debug.WriteLine($"C#: Arquivo selecionado manualmente: {filePath}");
+                    
+                    // Ativa o estado de drop mode (desativa hit-test do border, etc)
+                    ActivateDropMode();
+
+                    // Salva como pendente
+                    _pendingDropFilePath = filePath;
+
+                    // Fecha a ilha principal (caso ainda esteja aberta)
+                    _isIslandOpen = false;
+                    var closeIslandMsg = new { type = "SET_ISLAND_STATE", state = "closed" };
+                    webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(closeIslandMsg));
+
+                    // Abre o painel de drop com as opções
+                    var msgFile = new { type = "FILE_RECEIVED", fileName = System.IO.Path.GetFileName(filePath) };
+                    webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(msgFile));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Erro ao abrir seletor de arquivos: {ex.Message}");
+            }
+        }
+
+        // Método para ser chamado quando um arquivo é solto
         private void ProcessDroppedFile(string filePath, string action)
         {
             if (action == "excel")
@@ -654,15 +736,24 @@ namespace DynamicIslandWindows
                 object? hyperlinks = activeSheet.GetType().InvokeMember("Hyperlinks", System.Reflection.BindingFlags.GetProperty, null, activeSheet, null);
                 if (hyperlinks == null) return;
 
+                // CORREÇÃO AQUI - Usando Missing.Value em vez de "" vazia
+                object missing = System.Reflection.Missing.Value;
+                
                 // Argumentos: Anchor, Address, SubAddress, ScreenTip, TextToDisplay
-                object[] args = new object[] { activeCell, filePath, "", "", Path.GetFileName(filePath) };
+                object[] args = new object[] { activeCell, filePath, missing, missing, Path.GetFileName(filePath) };
+                
                 hyperlinks.GetType().InvokeMember("Add", System.Reflection.BindingFlags.InvokeMethod, null, hyperlinks, args);
-
+                
                 Debug.WriteLine("Hiperlink criado no Excel com sucesso.");
+                
+                // Feedback visual de sucesso
+                MessageBox.Show("Hiperlink criado no Excel com sucesso!", "Sucesso Dynamic Island", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"Erro ao enviar para o Excel: {ex.Message}");
+                // Mostra um aviso caso a célula do Excel não esteja pronta
+                MessageBox.Show($"Ocorreu um erro ao colar no Excel.\n\nCertifique-se de que:\n1. Há uma planilha aberta.\n2. A célula não está em modo de edição (piscando).\n\nErro técnico: {ex.Message}", "Aviso Dynamic Island", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 

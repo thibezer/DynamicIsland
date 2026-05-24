@@ -1,8 +1,8 @@
-﻿<Application x:Class="DynamicIsland.App"
+<Application x:Class="DynamicIsland.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:DynamicIsland"
-             StartupUri="MainWindow.xaml">
+             StartupUri="NativeIslandWindow.xaml">
     <Application.Resources>
          
     </Application.Resources>

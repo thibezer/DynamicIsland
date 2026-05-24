@@ -8,12 +8,26 @@
         Background="Transparent" 
         Topmost="True" 
         ShowInTaskbar="False"
-        Loaded="Window_Loaded">
-    <Grid>
-        <!-- HACK DE HIT-TEST: Dinâmico -->
-        <!-- Começa em 0x0 para não bloquear a tela quando fechado -->
-        <Border Name="hitTestBorder" Background="#01000000" HorizontalAlignment="Left" VerticalAlignment="Bottom" Width="300" Height="44" Margin="12,0,0,0" AllowDrop="True" DragEnter="hitTestBorder_DragEnter" DragOver="hitTestBorder_DragOver" DragLeave="hitTestBorder_DragLeave" Drop="hitTestBorder_Drop"/>
+        Loaded="Window_Loaded"
+        AllowDrop="True" 
+        DragEnter="Window_DragEnter" 
+        DragOver="Window_DragOver" 
+        DragLeave="Window_DragLeave" 
+        Drop="Window_Drop">
+    <Grid Name="mainGrid" Background="Transparent">
+        <!-- O hitTestBorder e o WebView2 agora ocupam apenas a área necessária -->
+        <Border Name="hitTestBorder" 
+                Background="#01000000" 
+                HorizontalAlignment="Left" 
+                VerticalAlignment="Bottom" 
+                Width="300" Height="44" 
+                Margin="12,0,0,12" />
         
-        <wv2:WebView2 Name="webView" DefaultBackgroundColor="Transparent"/>
+        <wv2:WebView2 Name="webView" 
+                      DefaultBackgroundColor="Transparent"
+                      HorizontalAlignment="Left" 
+                      VerticalAlignment="Bottom" 
+                      Width="300" Height="44" 
+                      Margin="12,0,0,12" />
     </Grid>
 </Window>

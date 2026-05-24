@@ -93,7 +93,7 @@
            ========================================= */
         .island-panel {
             position: absolute;
-            bottom: 55px;
+            bottom: 60px;
             /* Distância da parte de baixo da tela */
             left: 12px;
             /* Distância da lateral esquerda da tela */
@@ -127,6 +127,13 @@
             /* Fica 100% visível */
             pointer-events: auto;
             /* Reativa os cliques */
+        }
+
+        /* Se o painel de drop estiver aberto, o painel de configurações DEVE sumir */
+        body:has(.drop-panel.active) .island-panel {
+            opacity: 0 !important;
+            transform: translateY(20px) scale(0.95) !important;
+            pointer-events: none !important;
         }
 
         /* Grade de 3 colunas para alinhar os botões de Wi-Fi, Bluetooth, etc. */
@@ -210,7 +217,7 @@
         /* Estilo para painéis de ação especial (como o de Drop de Arquivo) */
         .drop-panel {
             position: absolute;
-            bottom: 45px;
+            bottom: 60px;
             left: 12px;
             border-radius: 24px;
             width: 320px;
@@ -230,6 +237,33 @@
             transform: translateY(0) scale(1);
             opacity: 1;
             pointer-events: auto;
+            border: 2px solid #4CC2FF;
+            box-shadow: 0 0 30px rgba(76, 194, 255, 0.3);
+        }
+
+        /* Indicador visual centralizado para quando o drag está ativo mas não soltou ainda */
+        .drop-indicator-active {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(76, 194, 255, 0.1);
+            border: 4px dashed rgba(76, 194, 255, 0.5);
+            border-radius: 24px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            pointer-events: none;
+            animation: pulse-border 1.5s infinite;
+        }
+
+        body:has(.drop-panel.active) .drop-indicator-active:not(:has(#dropFileName:empty)) {
+            display: none;
+        }
+        
+        @keyframes pulse-border {
+            0% { border-color: rgba(76, 194, 255, 0.3); box-shadow: inset 0 0 20px rgba(76, 194, 255, 0.1); }
+            50% { border-color: rgba(76, 194, 255, 0.8); box-shadow: inset 0 0 40px rgba(76, 194, 255, 0.2); }
+            100% { border-color: rgba(76, 194, 255, 0.3); box-shadow: inset 0 0 20px rgba(76, 194, 255, 0.1); }
         }
 
         .drop-option {
@@ -248,6 +282,17 @@
             background: rgba(255, 255, 255, 0.12);
             border: 1px solid rgba(255, 255, 255, 0.2);
             transform: scale(1.02);
+        }
+
+        .drop-option.ready {
+            border: 1px solid rgba(76, 194, 255, 0.4);
+            background: rgba(76, 194, 255, 0.05);
+            box-shadow: 0 0 15px rgba(76, 194, 255, 0.1);
+        }
+
+        .drop-option.ready:hover {
+            border: 1px solid rgba(76, 194, 255, 0.8);
+            background: rgba(76, 194, 255, 0.15);
         }
 
         .drop-option .icon-box {
@@ -391,8 +436,8 @@
             /* Margem da borda da tela */
             height: 40px;
             /* Altura da pílula */
-            bottom: 4px;
-            /* Fica colada a 4px de distância do rodapé do sistema */
+            bottom: 12px;
+            /* Fica colada a 12px de distância da base */
             border-radius: 20px;
             /* Como a altura é 40px, o radius 20px deixa ela perfeitamente redonda nas pontas */
 
@@ -471,6 +516,10 @@
 </head>
 
 <body>
+    <div class="drop-indicator-active" id="dropVisualIndicator">
+        <span class="material-symbols-outlined" style="font-size: 48px; color: #4CC2FF;">upload_file</span>
+    </div>
+
     <div class="mini-island frosted-glass" id="miniIsland" onclick="openIslandClick(event)" style="cursor:pointer;">
         <div class="specular-highlight"></div>
 
@@ -504,9 +553,14 @@
     <div class="drop-panel frosted-glass" id="dropPanel">
         <div class="specular-highlight"></div>
         <div class="content-layer" style="flex-direction: column;">
-            <div style="text-align: center; margin-bottom: 8px;">
-                <span style="font-size: 13px; font-weight: 600; opacity: 0.9;">Opções de Arquivo</span>
-                <div id="dropFileName" style="font-size: 10px; opacity: 0.5; margin-top: 4px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;"></div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                <div style="flex: 1;">
+                    <span style="font-size: 13px; font-weight: 600; opacity: 0.9;">Opções de Arquivo</span>
+                    <div id="dropFileName" style="font-size: 10px; opacity: 0.5; margin-top: 4px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 240px;"></div>
+                </div>
+                <button onclick="hideDropPanel()" style="background: none; border: none; color: white; opacity: 0.4; cursor: pointer; padding: 0;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+                </button>
             </div>
             
             <div class="drop-option" id="dropOptExcel" onclick="executeFileAction('excel')">
@@ -518,9 +572,18 @@
                     <span style="font-size: 10px; opacity: 0.6;">Cria hiperlink na célula ativa</span>
                 </div>
             </div>
+
+            <div class="drop-option" onclick="hideDropPanel()" style="margin-top: 4px; border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.02);">
+                <div class="icon-box" style="width: 32px; height: 32px; background: rgba(255,255,255,0.05);">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">cancel</span>
+                </div>
+                <div>
+                    <span style="font-size: 11px; opacity: 0.8;">Cancelar</span>
+                </div>
+            </div>
             
-            <div style="text-align: center; font-size: 10px; opacity: 0.4; margin-top: 4px;">
-                Clique na opção desejada
+            <div style="text-align: center; font-size: 10px; opacity: 0.5; margin-top: 4px;" id="dropStatusText">
+                Aguardando arquivo...
             </div>
         </div>
     </div>
@@ -553,6 +616,8 @@
                         class="label">Transmitir</span></div>
                 <div class="toggle-btn" data-action="project"><span class="material-symbols-outlined">dvr</span><span
                         class="label">Projetar</span></div>
+                <div class="toggle-btn" data-action="file_picker" style="color: #4CC2FF;"><span class="material-symbols-outlined">folder_open</span><span
+                        class="label">Arquivos</span></div>
             </div>
 
             <div class="sliders-group">
@@ -623,43 +688,56 @@
         updateSpecularPosition();
 
         /* --- LÓGICA DE DRAG & DROP --- */
-        // O WebView2 (HwndHost) captura drag events no nível Win32. 
-        // O JS detecta o dragenter e avisa o C# para trazer o hitTestBorder pra frente.
-        const dropPanel = document.getElementById('dropPanel');
-        let _dragEnterCounter = 0; // Contador para evitar duplicatas do dragenter/dragleave
-
-        window.addEventListener('dragenter', (e) => {
-            e.preventDefault();
-            _dragEnterCounter++;
-            if (_dragEnterCounter === 1 && window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMessage({ type: 'SET_DROP_ZONE', active: true });
-            }
-        });
-
-        window.addEventListener('dragleave', (e) => {
-            _dragEnterCounter--;
-            if (_dragEnterCounter <= 0) {
-                _dragEnterCounter = 0;
-            }
-        });
-
-        // Previne o comportamento padrão de "abrir arquivo" no WebView2
+        // O JS agora é passivo. A Window WPF captura o drag nativamente (bubble up).
+        // Apenas escutamos as mensagens do C# para animar a interface.
+        
+        // Previne o comportamento padrão de "abrir arquivo" no WebView2 para garantir o bubble up
         window.addEventListener('dragover', (e) => { e.preventDefault(); });
-        window.addEventListener('drop', (e) => { e.preventDefault(); _dragEnterCounter = 0; });
+        window.addEventListener('drop', (e) => { e.preventDefault(); });
 
         function showDropPanel(fileName) {
+            const dropPanel = document.getElementById('dropPanel');
+            const visualInd = document.getElementById('dropVisualIndicator');
             dropPanel.classList.add('active');
             const nameEl = document.getElementById('dropFileName');
-            if (nameEl && fileName) nameEl.textContent = fileName;
+            const statusEl = document.getElementById('dropStatusText');
+            
+            if (fileName) {
+                // Arquivo já foi solto
+                visualInd.style.display = 'none';
+                nameEl.textContent = "Arquivo pronto: " + fileName;
+                nameEl.style.color = "#4CC2FF"; // Cor de destaque
+                nameEl.style.opacity = "1";
+                statusEl.textContent = "Clique em uma opção abaixo";
+                statusEl.style.opacity = "0.8";
+                document.querySelectorAll('.drop-option').forEach(opt => opt.classList.add('ready'));
+            } else {
+                // Ainda está arrastando
+                visualInd.style.display = 'flex';
+                nameEl.textContent = "Solte o arquivo aqui...";
+                nameEl.style.color = "white";
+                nameEl.style.opacity = "0.5";
+                statusEl.textContent = "Prepare-se para soltar";
+                document.querySelectorAll('.drop-option').forEach(opt => opt.classList.remove('ready'));
+            }
         }
 
         function hideDropPanel() {
-            dropPanel.classList.remove('active');
+            document.getElementById('dropPanel').classList.remove('active');
+            document.getElementById('dropVisualIndicator').style.display = 'none';
             const nameEl = document.getElementById('dropFileName');
             if (nameEl) nameEl.textContent = '';
+            _dragEnterCounter = 0; // Reseta o contador global
+            document.querySelectorAll('.drop-option').forEach(opt => opt.classList.remove('ready'));
+
+            // Notifica o C# que o painel foi fechado para liberar a área de clique
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({ type: 'CLOSE_DROP_ZONE' });
+            }
         }
 
         function executeFileAction(action) {
+            console.log("Executando ação:", action);
             // Notifica o C# qual ação foi escolhida pelo usuário
             if (window.chrome && window.chrome.webview) {
                 window.chrome.webview.postMessage({ type: 'FILE_ACTION', action: action });
@@ -732,11 +810,23 @@
         /* --- EVENTOS DE INTERFACE --- */
         document.querySelectorAll('.toggle-btn').forEach(btn => {
             btn.addEventListener('click', function () {
+                const action = this.getAttribute('data-action');
+                
+                // Botões de ação imediata (não são toggles de on/off)
+                if (action === 'file_picker') {
+                    if (window.chrome && window.chrome.webview) {
+                        window.chrome.webview.postMessage({ type: 'OPEN_FILE_PICKER' });
+                    }
+                    // Fecha o painel de configurações
+                    document.getElementById('dynamicIsland').classList.remove('active');
+                    return;
+                }
+
                 this.classList.toggle('is-on');
                 if (window.chrome && window.chrome.webview) {
                     window.chrome.webview.postMessage({
                         type: 'TOGGLE_SETTING',
-                        setting: this.getAttribute('data-action'),
+                        setting: action,
                         state: this.classList.contains('is-on')
                     });
                 }

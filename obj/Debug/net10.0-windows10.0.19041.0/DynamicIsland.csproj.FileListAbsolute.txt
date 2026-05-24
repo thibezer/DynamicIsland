@@ -84,3 +84,6 @@ D:\OneDrive_Thiago\OneDrive\Desenvolvimento\DynamicIsland\obj\Debug\net10.0-wind
 D:\OneDrive_Thiago\OneDrive\Desenvolvimento\DynamicIsland\obj\Debug\net10.0-windows10.0.19041.0\DynamicIsland.pdb
 D:\OneDrive_Thiago\OneDrive\Desenvolvimento\DynamicIsland\obj\Debug\net10.0-windows10.0.19041.0\DynamicIsland.genruntimeconfig.cache
 D:\OneDrive_Thiago\OneDrive\Desenvolvimento\DynamicIsland\obj\Debug\net10.0-windows10.0.19041.0\ref\DynamicIsland.dll
+D:\OneDrive_Thiago\OneDrive\Desenvolvimento\DynamicIsland\obj\Debug\net10.0-windows10.0.19041.0\DynamicIsland.sourcelink.json
+D:\OneDrive_Thiago\OneDrive\Desenvolvimento\DynamicIsland\obj\Debug\net10.0-windows10.0.19041.0\NativeIslandWindow.baml
+D:\OneDrive_Thiago\OneDrive\Desenvolvimento\DynamicIsland\obj\Debug\net10.0-windows10.0.19041.0\NativeIslandWindow.g.cs
