@@ -2,9 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Dynamic Island Nativa" 
-        Height="65" Width="300"
+        Height="63" Width="340"
         WindowStyle="None" 
         ResizeMode="NoResize"
+        AllowsTransparency="True"
         Background="Transparent"
         Topmost="True" 
         ShowInTaskbar="False"
@@ -13,20 +14,10 @@
         DragEnter="Window_DragEnter"
         DragOver="Window_DragOver"
         DragLeave="Window_DragLeave"
-        Drop="Window_Drop">
-    
-    <!-- 
-      CONFIGURAÇÃO DE COMPOSIÇÃO NATIVA (WINDOWS CHROME)
-      Permite estender o efeito de vidro do Win11 e garante o canal nativo de Drag & Drop
-      removendo a necessidade de AllowsTransparency="True" que causava problemas de Airspace.
-    -->
-    <WindowChrome.WindowChrome>
-        <WindowChrome GlassFrameThickness="-1" 
-                      CornerRadius="0" 
-                      CaptionHeight="0" 
-                      UseAeroCaptionButtons="False" 
-                      ResizeBorderThickness="0" />
-    </WindowChrome.WindowChrome>
+        Drop="Window_Drop"
+        SizeToContent="Manual"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
     
     <!-- 
       RECURSOS VISUAIS DA JANELA (ESTILOS E EFEITOS FLUENT)
@@ -65,7 +56,7 @@
                                                 <Setter Property="Template">
                                                     <Setter.Value>
                                                         <ControlTemplate TargetType="RepeatButton">
-                                                            <Border Background="#4CC2FF" Height="4" CornerRadius="2" VerticalAlignment="Center" Margin="6,0,0,0" />
+                                                            <Border Background="#885959ff" Height="4" CornerRadius="2" VerticalAlignment="Center" Margin="6,0,0,0" />
                                                         </ControlTemplate>
                                                     </Setter.Value>
                                                 </Setter>
@@ -201,19 +192,29 @@
           Fundo translúcido, bordas redondas e feedback visual ativo.
         -->
         <Style x:Key="ToggleButtonStyle" TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
-            <Setter Property="Background" Value="#1AFFFFFF" />
-            <Setter Property="CornerRadius" Value="12" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="BorderBrush" Value="#0DFFFFFF" />
+            <Setter Property="Background" Value="#FF1e1e20" />
+            <Setter Property="CornerRadius" Value="12.5" />
+            <Setter Property="BorderThickness" Value="0.5" />
+            <Setter Property="BorderBrush" Value="#1AFFFFFF" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Padding" Value="8" />
+            <Setter Property="Width" Value="120" />
+            <Setter Property="Height" Value="40" />
             <Style.Triggers>
                 <!-- Hover no toggle: aumenta a iluminação de fundo -->
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#2BFFFFFF" />
-                    <Setter Property="BorderBrush" Value="#1EFFFFFF" />
+                    <Setter Property="Background" Value="#FF444444" />
+                    <Setter Property="BorderBrush" Value="#33FFFFFF" />
                 </Trigger>
             </Style.Triggers>
+        </Style>
+
+        <!-- 
+          TEXTO FLUENT PREMIUM SECUNDARIO
+          Tom cinza fosco semi-opaco para legendas elegantes.
+        -->
+        <Style x:Key="FluentTextSec" TargetType="TextBlock" BasedOn="{StaticResource FluentText}">
+            <Setter Property="Opacity" Value="0.65" />
         </Style>
     </Window.Resources>
 
@@ -228,9 +229,12 @@
           - ClipToBounds: Impede que o conteúdo interno curve fora da borda redonda.
         -->
         <Border Name="islandBorder"
-                Background="#1A000000"
-                CornerRadius="15"
-                Padding="12,5,12,5"
+                Background="Black"
+                CornerRadius="22.5"
+                BorderBrush="#5d5d5d"
+                BorderThickness="0"
+                Margin="10"
+                Padding="10,5,10,5"
                 ClipToBounds="True"
                 MouseLeftButtonDown="IslandBorder_MouseLeftButtonDown">
             
@@ -243,7 +247,7 @@
             <Grid>
                 <Grid.RowDefinitions>
                     <!-- Row 0 (*): Painel Expandido ou Drop Zone (zona que abre de baixo para cima) -->
-                    <RowDefinition Height="*" />     
+                    <RowDefinition Height="*" Name="expandedRow" />     
                     <!-- Row 1 (Auto): Separador estético e discreto entre o painel e a pílula -->
                     <RowDefinition Height="Auto" />  
                     <!-- Row 2 (Auto): Pílula compacta (sempre ancorada na base da tela) -->
@@ -254,25 +258,34 @@
                   ══ Row 0: Painel Expandido ══════════════════════════════════════════
                   Ativado ao passar o mouse ou clicar na pílula.
                 -->
-                <Grid Name="expandedIslandPanel" Grid.Row="0" Visibility="Collapsed">
+                <Grid Name="expandedIslandPanel" Grid.Row="0" Visibility="Collapsed" Margin="0,5,0,0">
                     <Grid.RowDefinitions>
-                        <!-- Linha 0 (*): Grade dos 12 botões de toggles rápidos -->
-                        <RowDefinition Height="*" />
-                        <!-- Linha 1 (Auto): Sliders horizontais de Brilho e Volume -->
-                        <RowDefinition Height="Auto" />
-                        <!-- Linha 2 (Auto): Botão inferior "Todas as Configurações" -->
-                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-
-                    <!-- 
-                      GRADE DE TOGGLES RÁPIDOS
-                      Disposição elegante de 3 colunas e 4 linhas. Cada botão usa a tag "Tag"
-                      para controlar a lógica no C# e o estilo de Feedback Tátil.
-                    -->
-                    <UniformGrid Grid.Row="0" Columns="3" Rows="4" Margin="0,0,0,8">
+                    
+                    <!-- Row 0: Grade de Toggles Rápidos (3 colunas precisas de 120px com espaçamento de 5px) -->
+                    <Grid Grid.Row="0" Margin="0,0,0,5" Width="370" HorizontalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="5" />
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="5" />
+                            <ColumnDefinition Width="120" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="40" />
+                            <RowDefinition Height="5" />
+                            <RowDefinition Height="40" />
+                            <RowDefinition Height="5" />
+                            <RowDefinition Height="40" />
+                            <RowDefinition Height="5" />
+                            <RowDefinition Height="40" />
+                        </Grid.RowDefinitions>
                         
                         <!-- Toggle: Wi-Fi -->
-                        <Border Style="{StaticResource ToggleButtonStyle}" Name="btnWifi" MouseLeftButtonDown="Toggle_Click" Tag="wifi" Margin="0,0,6,6">
+                        <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource ToggleButtonStyle}" Name="btnWifi" MouseLeftButtonDown="Toggle_Click" Tag="wifi">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE701;" FontSize="15" Width="20" Name="icoWifi" Foreground="#4CC2FF" />
                                 <TextBlock Style="{StaticResource FluentText}" Text="Wi-Fi" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
@@ -280,7 +293,7 @@
                         </Border>
 
                         <!-- Toggle: Bluetooth -->
-                        <Border Style="{StaticResource ToggleButtonStyle}" Name="btnBluetooth" MouseLeftButtonDown="Toggle_Click" Tag="bluetooth" Margin="0,0,6,6">
+                        <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource ToggleButtonStyle}" Name="btnBluetooth" MouseLeftButtonDown="Toggle_Click" Tag="bluetooth">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE702;" FontSize="15" Width="20" Name="icoBluetooth" Foreground="#4CC2FF" />
                                 <TextBlock Style="{StaticResource FluentText}" Text="Bluetooth" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
@@ -288,23 +301,23 @@
                         </Border>
 
                         <!-- Toggle: Modo Avião -->
-                        <Border Style="{StaticResource ToggleButtonStyle}" Name="btnAirplane" MouseLeftButtonDown="Toggle_Click" Tag="airplane" Margin="0,0,0,6">
+                        <Border Grid.Row="0" Grid.Column="4" Style="{StaticResource ToggleButtonStyle}" Name="btnAirplane" MouseLeftButtonDown="Toggle_Click" Tag="airplane">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xEB4C;" FontSize="15" Width="20" Name="icoAirplane" />
-                                <TextBlock Style="{StaticResource FluentText}" Text="Modo Avião" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
+                                <TextBlock Style="{StaticResource FluentText}" Text="Avião" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
                             </StackPanel>
                         </Border>
 
                         <!-- Toggle: Acessibilidade -->
-                        <Border Style="{StaticResource ToggleButtonStyle}" Name="btnAccessibility" MouseLeftButtonDown="Toggle_Click" Tag="accessibility" Margin="0,0,6,6">
+                        <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource ToggleButtonStyle}" Name="btnAccessibility" MouseLeftButtonDown="Toggle_Click" Tag="accessibility">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE776;" FontSize="15" Width="20" Name="icoAccessibility" />
-                                <TextBlock Style="{StaticResource FluentText}" Text="Acessibil." FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
+                                <TextBlock Style="{StaticResource FluentText}" Text="Acessib." FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
                             </StackPanel>
                         </Border>
 
                         <!-- Toggle: Economia de Bateria -->
-                        <Border Style="{StaticResource ToggleButtonStyle}" Name="btnBatterySaver" MouseLeftButtonDown="Toggle_Click" Tag="battery_saver" Margin="0,0,6,6">
+                        <Border Grid.Row="2" Grid.Column="2" Style="{StaticResource ToggleButtonStyle}" Name="btnBatterySaver" MouseLeftButtonDown="Toggle_Click" Tag="battery_saver">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE83F;" FontSize="15" Width="20" Name="icoBatterySaver" />
                                 <TextBlock Style="{StaticResource FluentText}" Text="Economia" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
@@ -312,7 +325,7 @@
                         </Border>
 
                         <!-- Toggle: Legendas Ao Vivo -->
-                        <Border Style="{StaticResource ToggleButtonStyle}" Name="btnLiveCaptions" MouseLeftButtonDown="Toggle_Click" Tag="live_captions" Margin="0,0,0,6">
+                        <Border Grid.Row="2" Grid.Column="4" Style="{StaticResource ToggleButtonStyle}" Name="btnLiveCaptions" MouseLeftButtonDown="Toggle_Click" Tag="live_captions">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xED1E;" FontSize="15" Width="20" Name="icoLiveCaptions" />
                                 <TextBlock Style="{StaticResource FluentText}" Text="Legendas" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
@@ -320,15 +333,15 @@
                         </Border>
 
                         <!-- Toggle: Luz Noturna -->
-                        <Border Style="{StaticResource ToggleButtonStyle}" Name="btnNightLight" MouseLeftButtonDown="Toggle_Click" Tag="night_light" Margin="0,0,6,6">
+                        <Border Grid.Row="4" Grid.Column="0" Style="{StaticResource ToggleButtonStyle}" Name="btnNightLight" MouseLeftButtonDown="Toggle_Click" Tag="night_light">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xEC46;" FontSize="15" Width="20" Name="icoNightLight" />
-                                <TextBlock Style="{StaticResource FluentText}" Text="Luz Noturna" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
+                                <TextBlock Style="{StaticResource FluentText}" Text="Luz Not." FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
                             </StackPanel>
                         </Border>
 
                         <!-- Toggle: Mobile Hotspot -->
-                        <Border Style="{StaticResource ToggleButtonStyle}" Name="btnMobileHotspot" MouseLeftButtonDown="Toggle_Click" Tag="mobile_hotspot" Margin="0,0,6,6">
+                        <Border Grid.Row="4" Grid.Column="2" Style="{StaticResource ToggleButtonStyle}" Name="btnMobileHotspot" MouseLeftButtonDown="Toggle_Click" Tag="mobile_hotspot">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE96A;" FontSize="15" Width="20" Name="icoMobileHotspot" />
                                 <TextBlock Style="{StaticResource FluentText}" Text="Hotspot" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
@@ -336,7 +349,7 @@
                         </Border>
 
                         <!-- Toggle: Partilhar por Proximidade (Nearby Share) -->
-                        <Border Style="{StaticResource ToggleButtonStyle}" Name="btnNearbyShare" MouseLeftButtonDown="Toggle_Click" Tag="nearby_share" Margin="0,0,0,6">
+                        <Border Grid.Row="4" Grid.Column="4" Style="{StaticResource ToggleButtonStyle}" Name="btnNearbyShare" MouseLeftButtonDown="Toggle_Click" Tag="nearby_share">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE72D;" FontSize="15" Width="20" Name="icoNearbyShare" />
                                 <TextBlock Style="{StaticResource FluentText}" Text="Partilhar" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
@@ -344,7 +357,7 @@
                         </Border>
 
                         <!-- Toggle: Transmitir Tela (Cast) -->
-                        <Border Style="{StaticResource ToggleButtonStyle}" Name="btnCast" MouseLeftButtonDown="Toggle_Click" Tag="cast" Margin="0,0,6,0">
+                        <Border Grid.Row="6" Grid.Column="0" Style="{StaticResource ToggleButtonStyle}" Name="btnCast" MouseLeftButtonDown="Toggle_Click" Tag="cast">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xEC15;" FontSize="15" Width="20" Name="icoCast" />
                                 <TextBlock Style="{StaticResource FluentText}" Text="Transmitir" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
@@ -352,7 +365,7 @@
                         </Border>
 
                         <!-- Toggle: Projetar (Project) -->
-                        <Border Style="{StaticResource ToggleButtonStyle}" Name="btnProject" MouseLeftButtonDown="Toggle_Click" Tag="project" Margin="0,0,6,0">
+                        <Border Grid.Row="6" Grid.Column="2" Style="{StaticResource ToggleButtonStyle}" Name="btnProject" MouseLeftButtonDown="Toggle_Click" Tag="project">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE7F4;" FontSize="15" Width="20" Name="icoProject" />
                                 <TextBlock Style="{StaticResource FluentText}" Text="Projetar" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
@@ -360,94 +373,95 @@
                         </Border>
 
                         <!-- Toggle: Seletor de Ficheiros (Explorador de Arquivos) -->
-                        <Border Style="{StaticResource ToggleButtonStyle}" Name="btnFilePicker" MouseLeftButtonDown="Toggle_Click" Tag="file_picker" Margin="0,0,0,0">
+                        <Border Grid.Row="6" Grid.Column="4" Style="{StaticResource ToggleButtonStyle}" Name="btnFilePicker" MouseLeftButtonDown="Toggle_Click" Tag="file_picker">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE8B7;" FontSize="15" Width="20" Name="icoFilePicker" />
                                 <TextBlock Style="{StaticResource FluentText}" Text="Ficheiros" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
                             </StackPanel>
                         </Border>
-                    </UniformGrid>
+                    </Grid>
 
-                    <!-- 
-                      PAINEL DE CONTROLADORES SLIDERS
-                      Agrupa os sliders de Brilho e Volume em uma caixa translúcida moderna.
-                    -->
-                    <Border Grid.Row="1" Margin="0,0,0,8" Background="#0DFFFFFF" Padding="10" CornerRadius="14">
-                        <StackPanel>
-                            <!-- Slider: Brilho da Tela -->
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="40" />
-                                </Grid.ColumnDefinitions>
-                                <!-- Ícone de sol (Brilho) -->
-                                <TextBlock Grid.Column="0" Style="{StaticResource FluentIcon}" Text="&#xE706;" FontSize="15" Margin="0,0,10,0" Opacity="0.8" />
-                                <Slider Style="{StaticResource ModernFluentSliderStyle}" Grid.Column="1" Name="brightnessSlider" Minimum="0" Maximum="100" Value="70" VerticalAlignment="Center" ValueChanged="BrightnessSlider_ValueChanged" />
-                                <!-- Valor textual do brilho -->
-                                <TextBlock Grid.Column="2" Name="txtBrightnessVal" Style="{StaticResource FluentText}" Text="70%" FontSize="11" FontWeight="Medium" HorizontalAlignment="Right" VerticalAlignment="Center" Opacity="0.6" />
-                            </Grid>
+                    <!-- Row 1: Sliders de Brilho e Volume -->
+                    <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,0,0,5">
+                        <Border Background="#FF1e1e20" BorderBrush="#1AFFFFFF" BorderThickness="0.5" Padding="10,8" CornerRadius="12.5" Width="370" Height="80">
+                            <StackPanel>
+                                <!-- Slider: Brilho da Tela -->
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="40" />
+                                    </Grid.ColumnDefinitions>
+                                    <!-- Ícone de sol (Brilho) -->
+                                    <TextBlock Grid.Column="0" Style="{StaticResource FluentIcon}" Text="&#xE706;" FontSize="15" Margin="0,0,10,0" Opacity="0.8" />
+                                    <Slider Style="{StaticResource ModernFluentSliderStyle}" Grid.Column="1" Name="brightnessSlider" Minimum="0" Maximum="100" Value="70" VerticalAlignment="Center" ValueChanged="BrightnessSlider_ValueChanged" />
+                                    <!-- Valor textual do brilho -->
+                                    <TextBlock Grid.Column="2" Name="txtBrightnessVal" Style="{StaticResource FluentText}" Text="70%" FontSize="11" FontWeight="Medium" HorizontalAlignment="Right" VerticalAlignment="Center" Opacity="0.6" />
+                                </Grid>
 
-                            <!-- Slider: Volume Geral do Sistema -->
+                                <!-- Slider: Volume Geral do Sistema -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="40" />
+                                    </Grid.ColumnDefinitions>
+                                    <!-- Ícone de alto-falante (Volume) -->
+                                    <TextBlock Grid.Column="0" Style="{StaticResource FluentIcon}" Text="&#xE995;" FontSize="15" Margin="0,0,10,0" Opacity="0.8" />
+                                    <Slider Style="{StaticResource ModernFluentSliderStyle}" Grid.Column="1" Name="volumeSlider" Minimum="0" Maximum="100" Value="50" VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged" />
+                                    <!-- Valor textual do volume -->
+                                    <TextBlock Grid.Column="2" Name="txtVolumeVal" Style="{StaticResource FluentText}" Text="50%" FontSize="11" FontWeight="Medium" HorizontalAlignment="Right" VerticalAlignment="Center" Opacity="0.6" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Row 2: Todas as Configurações (Rodapé) -->
+                    <Grid Grid.Row="2">
+                        <Border CornerRadius="12.5" Width="370" Height="40" MouseLeftButtonDown="OpenSettings_Click" Cursor="Hand" Name="btnAllSettings" Margin="0,0,0,5">
+                            <Border.Style>
+                                <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
+                                    <Setter Property="Background" Value="#FF1e1e20" />
+                                    <Setter Property="BorderBrush" Value="#1AFFFFFF" />
+                                    <Setter Property="BorderThickness" Value="0.5" />
+                                    <Setter Property="Padding" Value="12,11" />
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="#FF444444" />
+                                            <Setter Property="BorderBrush" Value="#33FFFFFF" />
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Border.Triggers>
+                                <!-- Animação do Chevron deslizando para a direita no hover (3px) -->
+                                <EventTrigger RoutedEvent="Mouse.MouseEnter">
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="chevronTranslate" Storyboard.TargetProperty="X" To="3.0" Duration="0:0:0.15" DecelerationRatio="0.8" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </EventTrigger>
+                                <!-- Restaura posição do Chevron ao retirar o mouse -->
+                                <EventTrigger RoutedEvent="Mouse.MouseLeave">
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="chevronTranslate" Storyboard.TargetProperty="X" To="0.0" Duration="0:0:0.2" DecelerationRatio="0.8" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </EventTrigger>
+                            </Border.Triggers>
                             <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="40" />
-                                </Grid.ColumnDefinitions>
-                                <!-- Ícone de alto-falante (Volume) -->
-                                <TextBlock Grid.Column="0" Style="{StaticResource FluentIcon}" Text="&#xE995;" FontSize="15" Margin="0,0,10,0" Opacity="0.8" />
-                                <Slider Style="{StaticResource ModernFluentSliderStyle}" Grid.Column="1" Name="volumeSlider" Minimum="0" Maximum="100" Value="50" VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged" />
-                                <!-- Valor textual do volume -->
-                                <TextBlock Grid.Column="2" Name="txtVolumeVal" Style="{StaticResource FluentText}" Text="50%" FontSize="11" FontWeight="Medium" HorizontalAlignment="Right" VerticalAlignment="Center" Opacity="0.6" />
+                                <TextBlock Style="{StaticResource FluentText}" FontSize="12" FontWeight="SemiBold" Text="Todas as Configurações" HorizontalAlignment="Left" VerticalAlignment="Center" />
+                                <!-- chevronTranslate: Controla o deslocamento X do ícone -->
+                                <TextBlock Name="txtChevron" Style="{StaticResource FluentIcon}" Text="&#xE00F;" FontSize="14" HorizontalAlignment="Right" VerticalAlignment="Center" Opacity="0.7">
+                                    <TextBlock.RenderTransform>
+                                        <TranslateTransform x:Name="chevronTranslate" X="0" />
+                                    </TextBlock.RenderTransform>
+                                </TextBlock>
                             </Grid>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- 
-                      BOTÃO "TODAS AS CONFIGURAÇÕES" (RODAPÉ)
-                      Botão de largura total com ícone de chevron móvel que reage ao mouse-over.
-                    -->
-                    <Border Grid.Row="2" CornerRadius="12" MouseLeftButtonDown="OpenSettings_Click" Cursor="Hand" Name="btnAllSettings">
-                        <Border.Style>
-                            <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
-                                <Setter Property="Background" Value="#0DFFFFFF" />
-                                <Setter Property="Padding" Value="12,10" />
-                                <Style.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="#1AFFFFFF" />
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                        <Border.Triggers>
-                            <!-- Animação do Chevron deslizando para a direita no hover (3px) -->
-                            <EventTrigger RoutedEvent="Mouse.MouseEnter">
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="chevronTranslate" Storyboard.TargetProperty="X" To="3.0" Duration="0:0:0.15" DecelerationRatio="0.8" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
-                            <!-- Restaura posição do Chevron ao retirar o mouse -->
-                            <EventTrigger RoutedEvent="Mouse.MouseLeave">
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="chevronTranslate" Storyboard.TargetProperty="X" To="0.0" Duration="0:0:0.2" DecelerationRatio="0.8" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
-                        </Border.Triggers>
-                        <Grid>
-                            <TextBlock Style="{StaticResource FluentText}" FontSize="12" FontWeight="SemiBold" Text="Todas as Configurações" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            <!-- chevronTranslate: Controla o deslocamento X do ícone -->
-                            <TextBlock Name="txtChevron" Style="{StaticResource FluentIcon}" Text="&#xE00F;" FontSize="14" HorizontalAlignment="Right" VerticalAlignment="Center" Opacity="0.7">
-                                <TextBlock.RenderTransform>
-                                    <TranslateTransform x:Name="chevronTranslate" X="0" />
-                                </TextBlock.RenderTransform>
-                            </TextBlock>
-                        </Grid>
-                    </Border>
+                        </Border>
+                    </Grid>
                 </Grid>
 
                 <!-- 
@@ -457,7 +471,7 @@
                 <Grid Name="dropZonePanel" Grid.Row="0" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
@@ -495,7 +509,7 @@
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <!-- Ícone Excel (laranja/verde dependendo do glifo) -->
-                            <Border Grid.Column="0" Width="36" Height="36" CornerRadius="10" Background="#40F6A733" Margin="0,0,10,0">
+                            <Border Grid.Column="0" Width="36" Height="36" CornerRadius="12" Background="#40F6A733" Margin="0,0,10,0">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE90C;" FontSize="18" Foreground="#F6A733" />
                             </Border>
                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -506,12 +520,12 @@
                     </Border>
 
                     <!-- Botão de Ação Secundária (Cancelar) -->
-                    <Border Grid.Row="2" CornerRadius="12" Padding="8" MouseLeftButtonDown="CancelDrop_Click" Cursor="Hand">
+                    <Border Grid.Row="2" CornerRadius="6" Padding="8" MouseLeftButtonDown="CancelDrop_Click" Cursor="Hand">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
                                 <Setter Property="Background" Value="#0DFFFFFF" />
                                 <Setter Property="BorderBrush" Value="#0DFFFFFF" />
-                                <Setter Property="BorderThickness" Value="1" />
+                                <Setter Property="BorderThickness" Value="0.5" />
                                 <Style.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
                                         <Setter Property="Background" Value="#1AFFFFFF" />
@@ -531,7 +545,7 @@
                   Aparece dividindo o painel expandido e a pílula somente quando o menu estiver aberto.
                 -->
                 <Border Grid.Row="1" Name="islandSeparator" Visibility="Collapsed"
-                        Height="1" Background="#14FFFFFF" Margin="0,6,0,8" />
+                        Height="1" Background="#14FFFFFF" Margin="0,2,0,8" />
 
                 <!-- 
                   ══ Row 2: Pílula Compacta (Base Central) ════════════════════════════
@@ -550,28 +564,30 @@
                     <!-- Zona da Capa do Álbum / Ícone de Mídia -->
                     <Grid Grid.Column="0" Width="30" Height="30" Margin="0,0,8,0" VerticalAlignment="Center">
                         <!-- miniThumbBorder: Moldura arredondada para a capa. Ativada dinamicamente pelo C# -->
-                        <Border Name="miniThumbBorder" CornerRadius="8" ClipToBounds="True" Background="#2AFFFFFF" VerticalAlignment="Center">
-                            <Image Name="imgMiniThumb" Stretch="UniformToFill" Visibility="Collapsed" />
-                        </Border>
+                        <Border Name="miniThumbBorder" Width="30" Height="30" CornerRadius="8" ClipToBounds="True" Background="#2AFFFFFF" VerticalAlignment="Center" Visibility="Collapsed" />
                         <!-- txtMiniIcon: Exibe o ícone de disco rotativo caso não haja capa disponível -->
                         <TextBlock Name="txtMiniIcon" Style="{StaticResource FluentIcon}" FontSize="16" Text="&#xE990;" Foreground="#4CC2FF" VerticalAlignment="Center" />
                     </Grid>
 
                     <!-- Título e Subtítulo da Pílula Compacta -->
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
-                        <TextBlock Name="txtMiniTitle" Style="{StaticResource FluentText}" FontSize="11.5" FontWeight="SemiBold" Text="Carregando..." VerticalAlignment="Center" />
-                        <TextBlock Name="txtMiniSubtitle" Style="{StaticResource FluentText}" FontSize="9.5" Opacity="0.65" Text="Aguarde" VerticalAlignment="Center" Margin="0,1,0,0" />
+                        <TextBlock Name="txtMiniTitle" Style="{StaticResource FluentText}" FontSize="11.5" FontWeight="SemiBold" Text="Carregando..." VerticalAlignment="Center" MaxWidth="180" />
+                        <TextBlock Name="txtMiniSubtitle" Style="{StaticResource FluentText}" FontSize="9.5" Opacity="0.65" Text="Aguarde" VerticalAlignment="Center" Margin="0,1,0,0" MaxWidth="180" />
                     </StackPanel>
 
                     <!-- Controles de Mídia Rápidos (Play/Pause e Next) -->
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Name="miniMediaControls" Visibility="Collapsed" VerticalAlignment="Center">
                         <!-- Play / Pause -->
                         <Border Style="{StaticResource TactileBorderButtonStyle}" Width="30" Height="30" CornerRadius="15" Background="Transparent" MouseLeftButtonDown="PlayPause_Click" Cursor="Hand" ToolTip="Reproduzir/Pausar" VerticalAlignment="Center">
-                            <TextBlock Style="{StaticResource FluentIcon}" FontSize="13" Text="&#xE768;" Name="txtMiniPlayIcon" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <Grid>
+                                <TextBlock Style="{StaticResource FluentIcon}" FontSize="12" Text="&#xE768;" Name="txtMiniPlayIcon" VerticalAlignment="Center" HorizontalAlignment="Center" TextAlignment="Center" Margin="1.5,0,0,0" />
+                            </Grid>
                         </Border>
                         <!-- Próxima Faixa (Next) -->
                         <Border Style="{StaticResource TactileBorderButtonStyle}" Width="30" Height="30" CornerRadius="15" Background="Transparent" MouseLeftButtonDown="Next_Click" Cursor="Hand" ToolTip="Próxima" VerticalAlignment="Center">
-                            <TextBlock Style="{StaticResource FluentIcon}" FontSize="13" Text="&#xE893;" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <Grid>
+                                <TextBlock Style="{StaticResource FluentIcon}" FontSize="12" Text="&#xE893;" VerticalAlignment="Center" HorizontalAlignment="Center" TextAlignment="Center" />
+                            </Grid>
                         </Border>
                     </StackPanel>
                 </Grid>
