@@ -625,7 +625,7 @@ namespace DynamicIslandWindows
             }
             else
             {
-                border.Background = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33));
+                border.Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x20)); // Nova cor escura padrão (#FF1e1e20)
                 border.BorderBrush = new SolidColorBrush(Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF));
                 icon.Foreground = Brushes.White;
             }

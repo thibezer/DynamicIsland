@@ -488,17 +488,17 @@
                     </Grid>
 
                     <!-- Ação Principal: Enviar Hiperlink para o Excel Ativo -->
-                    <Border Grid.Row="1" CornerRadius="14" Padding="12" MouseLeftButtonDown="ExcelAction_Click" Cursor="Hand" Margin="0,0,0,8">
+                    <Border Grid.Row="1" CornerRadius="14" Padding="12" MouseLeftButtonDown="ExcelAction_Click" Cursor="Hand" Margin="0,0,0,5">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
-                                <Setter Property="Background" Value="#144CC2FF" />
-                                <Setter Property="BorderBrush" Value="#334CC2FF" />
-                                <Setter Property="BorderThickness" Value="1" />
+                                <Setter Property="Background" Value="#FF1e1e20" />
+                                <Setter Property="BorderBrush" Value="#1AFFFFFF" />
+                                <Setter Property="BorderThickness" Value="0.5" />
                                 <Style.Triggers>
                                     <!-- Hover na zona Excel: ilumina em tom azul Fluent translúcido -->
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="#264CC2FF" />
-                                        <Setter Property="BorderBrush" Value="#664CC2FF" />
+                                        <Setter Property="Background" Value="#FF444444" />
+                                        <Setter Property="BorderBrush" Value="#334CC2FF" />
                                     </Trigger>
                                 </Style.Triggers>
                             </Style>
@@ -523,12 +523,12 @@
                     <Border Grid.Row="2" CornerRadius="6" Padding="8" MouseLeftButtonDown="CancelDrop_Click" Cursor="Hand">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
-                                <Setter Property="Background" Value="#0DFFFFFF" />
-                                <Setter Property="BorderBrush" Value="#0DFFFFFF" />
+                                <Setter Property="Background" Value="#FF1e1e20" />
+                                <Setter Property="BorderBrush" Value="#1AFFFFFF" />
                                 <Setter Property="BorderThickness" Value="0.5" />
                                 <Style.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="#1AFFFFFF" />
+                                        <Setter Property="Background" Value="#FF444444" />
                                     </Trigger>
                                 </Style.Triggers>
                             </Style>
@@ -545,7 +545,7 @@
                   Aparece dividindo o painel expandido e a pílula somente quando o menu estiver aberto.
                 -->
                 <Border Grid.Row="1" Name="islandSeparator" Visibility="Collapsed"
-                        Height="1" Background="#14FFFFFF" Margin="0,2,0,8" />
+                        Height="1" Background="#14FFFFFF" Margin="0,0,0,5" />
 
                 <!-- 
                   ══ Row 2: Pílula Compacta (Base Central) ════════════════════════════
@@ -570,7 +570,7 @@
                     </Grid>
 
                     <!-- Título e Subtítulo da Pílula Compacta -->
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,8,0">
                         <TextBlock Name="txtMiniTitle" Style="{StaticResource FluentText}" FontSize="11.5" FontWeight="SemiBold" Text="Carregando..." VerticalAlignment="Center" MaxWidth="180" />
                         <TextBlock Name="txtMiniSubtitle" Style="{StaticResource FluentText}" FontSize="9.5" Opacity="0.65" Text="Aguarde" VerticalAlignment="Center" Margin="0,1,0,0" MaxWidth="180" />
                     </StackPanel>
