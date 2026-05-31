@@ -22,10 +22,6 @@ namespace DynamicIslandWindows
     {
         // ─── P/Invoke Windows 11 Nativo (Sem hacks antigos do Win10) ───────────────
         [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool GetCursorPos(out POINT lpPoint);
-
-        [DllImport("user32.dll")]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
             int X, int Y, int cx, int cy, uint uFlags);
 
@@ -35,17 +31,6 @@ namespace DynamicIslandWindows
         [DllImport("user32.dll")]
         private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
-        [DllImport("dwmapi.dll")]
-        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int attrSize);
-
-        // GDI32: Define a forma exata da janela (raio customizável, sem dependência do DWM padrão)
-        [DllImport("gdi32.dll")]
-        private static extern IntPtr CreateRoundRectRgn(int x1, int y1, int x2, int y2, int cx, int cy);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool SetWindowRgn(IntPtr hWnd, IntPtr hRgn, [MarshalAs(UnmanagedType.Bool)] bool bRedraw);
-
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_TOOLWINDOW = 0x00000080;
         private const int WS_EX_NOACTIVATE = 0x08000000;
@@ -54,28 +39,6 @@ namespace DynamicIslandWindows
         private const uint SWP_NOMOVE  = 0x0002;
         private const uint SWP_NOSIZE  = 0x0001;
         private const uint SWP_NOACTIVATE = 0x0010;
-
-        // Atributos Oficiais de Janela DWM do Windows 11
-        private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
-        private const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
-        private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
-
-        public enum DWMSBT
-        {
-            DWMSBT_AUTO = 0,
-            DWMSBT_NONE = 1,
-            DWMSBT_MAINWINDOW = 2,      // Mica
-            DWMSBT_TRANSIENTWINDOW = 3, // Acrylic Genuíno do Windows 11
-            DWMSBT_TABBEDWINDOW = 4     // Tabbed
-        }
-
-        public enum DWM_WINDOW_CORNER_PREFERENCE
-        {
-            DWMWCP_DEFAULT    = 0,
-            DWMWCP_DONOTROUND = 1,
-            DWMWCP_ROUND      = 2, // Cantos arredondados Win11 nativos
-            DWMWCP_ROUNDSMALL = 3
-        }
 
         [DllImport("shell32.dll")]
         private static extern int SHQueryUserNotificationState(out QUERY_USER_NOTIFICATION_STATE pquns);
@@ -107,17 +70,16 @@ namespace DynamicIslandWindows
             public int flags;
         }
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct POINT { public int X, Y; }
-
         // ─── Constantes de Layout ─────────────────────────────────────────────────
         private const int  HOVER_TICKS_TO_OPEN  = 4;
         private const int  HOVER_TICKS_TO_CLOSE = 3;
         private const int  HOVER_TIMER_MS        = 100;
         private const int  MEDIA_TIMER_S         = 2;
         private const int  DRAGLEAVE_DELAY_MS    = 150;
-        private const double ISLAND_OPEN_W       = 412;
-        private const double ISLAND_OPEN_H       = 405;
+
+        // Dimensões físicas lógicas finais do widget (sincronizadas e sem saltos)
+        private const double ISLAND_OPEN_W       = 410;
+        private const double ISLAND_OPEN_H       = 396;
         private const double DROPZONE_W          = 320;
         private const double DROPZONE_H          = 200;
 
@@ -130,11 +92,9 @@ namespace DynamicIslandWindows
         private bool   _isDropZoneActive   = false;
         private bool   _isDraggingFile     = false;
         private string _currentMode        = "notification";
-        private double _miniIslandWidth    = 300;
         private int    _hoverCounter       = 0;
         private string? _pendingDropFilePath = null;
         private double _dpiX = 1.0, _dpiY = 1.0;
-        private bool   _dpiCached = false;
         private int _mediaUpdateInProgress = 0;
         private bool _disposed = false;
         private double _miniBaseHeightLogica = 43; 
@@ -142,17 +102,6 @@ namespace DynamicIslandWindows
         private HwndSource? _hwndSource;
         private int _topmostTickCounter = 0;
         private const int TOPMOST_REFRESH_TICKS = 10;
-
-        // Variáveis de Controle para Animação Atômica de Janela (CompositionTarget.Rendering)
-        private double _animStartWidth;
-        private double _animStartHeight;
-        private double _animStartTop;
-        private double _animTargetWidth;
-        private double _animTargetHeight;
-        private double _animTargetTop;
-        private Stopwatch? _animStopwatch;
-        private bool _isAnimating = false;
-        private const double ANIM_DURATION_MS = 350.0;
 
         // Estados dos Toggles
         private bool _wifiOn = true;
@@ -189,23 +138,22 @@ namespace DynamicIslandWindows
         {
             CacheDpi();
 
-            // Posicionamento Inicial: Fórmula original que encaixa a pílula na barra de tarefas.
-            // A margem de 10px do Border faz a janela estender 10px além da borda visível.
-            var workArea = SystemParameters.WorkArea;
-            double startingWidth = GetDynamicCompactWidth();
-            this.Width = startingWidth;
-            this.Height = _miniBaseHeightLogica + 20;
-            this.Left = workArea.Left + 5;
-            this.Top  = SystemParameters.PrimaryScreenHeight - (_miniBaseHeightLogica + 10) - (2.0 / _dpiY);
+            // Seta a janela permanentemente com tamanho fixo grande (cobre o menu expandido completo)
+            this.Width = 430;
+            this.Height = 425;
 
-            // 1. Hook Win32 primeiro (popula _hwnd e _hwndSource)
+            var workArea = SystemParameters.WorkArea;
+            this.Left = workArea.Left + 5;
+            // Posiciona a base da Janela encaixando a pílula perfeitamente na barra de tarefas (canto inferior esquerdo da tela física)
+            this.Top = SystemParameters.PrimaryScreenHeight - this.Height + 10 - (2.0 / _dpiY); 
+
+            // Hook Win32 para remover barras nativas e fixar comportamento de ToolWindow
             SetupWindowHook();
 
-            // 2. Blur Win11 em seguida (bypassed para usar transparência de software/hardware limpa no WPF)
-            ApplyWindows11Blur();
-
-            // 3. Aplicar região arredondada (bypassed: controlado pelo CornerRadius do Border no WPF)
-            UpdateWindowRegion();
+            // Configuração física inicial da pílula compacta dentro da janela estática
+            double startingWidth = GetDynamicCompactWidth();
+            islandBorder.Width = startingWidth;
+            islandBorder.Height = _miniBaseHeightLogica;
 
             // Sincronizar Hardware
             try
@@ -225,11 +173,6 @@ namespace DynamicIslandWindows
 
             InitializeTogglesUI();
             SetupHoverTimer();
-
-            if (expandedRow != null)
-            {
-                expandedRow.Height = new GridLength(0);
-            }
 
             await _mediaService.InitializeAsync();
             await UpdateMediaInfoAsync();
@@ -261,7 +204,6 @@ namespace DynamicIslandWindows
             {
                 _dpiX = source.CompositionTarget.TransformToDevice.M11;
                 _dpiY = source.CompositionTarget.TransformToDevice.M22;
-                _dpiCached = true;
 
                 double barraFisica = (_dpiY > 1.1) ? 59.0 : 47.0;
                 double pilulaFisica = barraFisica - 4.0;
@@ -269,24 +211,9 @@ namespace DynamicIslandWindows
             }
         }
 
-        // ─── Motor de Desfoque e Forma Oficial do Windows 11 ─────────────────────
-        private void ApplyWindows11Blur()
-        {
-            // Bypassed: Cantos antialiased agora controlados por AllowsTransparency=True e CornerRadius do Border.
-            return;
-        }
-
-        // Aplica a região arredondada com raio exato de 20px lógicos convertido para físicos
-        private void UpdateWindowRegion()
-        {
-            // Bypassed: Cantos antialiased agora controlados por AllowsTransparency=True e CornerRadius do Border.
-            return;
-        }
-
-        // ─── Interação por Clique (Correção do Menu Travado) ────────────────────────
+        // ─── Interação por Clique (Abertura Forçada) ────────────────────────
         private void IslandBorder_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            // Se o usuário clicar na pílula e ela estiver fechada, força a abertura imediatamente
             if (!_isIslandOpen && !_isDropZoneActive)
             {
                 OpenIsland();
@@ -294,7 +221,7 @@ namespace DynamicIslandWindows
             }
         }
 
-        // ─── Hover Engine ────────────────────────────────────────────────────────
+        // ─── Hover Engine (Hit Test ultra leve em coordenadas lógicas) ─────────
         private void SetupHoverTimer()
         {
             _hoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(HOVER_TIMER_MS) };
@@ -320,28 +247,22 @@ namespace DynamicIslandWindows
                 }
             }
 
-            if (!GetCursorPos(out POINT p)) return;
+            // Captura posição do rato relativa à janela (Independente de DPI ou resoluções complexas)
+            Point mousePos = Mouse.GetPosition(this);
+            
+            // Verifica com precisão matemática se o rato está sobre o Border visível real
+            bool inZone = mousePos.X >= 10 &&
+                          mousePos.X <= 10 + islandBorder.ActualWidth &&
+                          mousePos.Y >= (this.Height - 10 - islandBorder.ActualHeight) &&
+                          mousePos.Y <= this.Height - 10;
 
-            if (!_dpiCached) CacheDpi();
-            double logicalX = p.X / _dpiX;
-            double logicalY = p.Y / _dpiY;
-
-            double hitW = _isIslandOpen ? ISLAND_OPEN_W : (_isDropZoneActive ? DROPZONE_W : _miniIslandWidth + 40);
-            double hitH = _isIslandOpen ? ISLAND_OPEN_H : (_isDropZoneActive ? DROPZONE_H : _miniBaseHeightLogica + 20);
-
-            bool inZone = logicalX >= this.Left &&
-                          logicalX <= this.Left + hitW &&
-                          logicalY >= this.Top &&
-                          logicalY <= this.Top + hitH;
-
-            // Mantém abertura automática por hover normal, mas o clique reforça caso falhe
             if (!_isIslandOpen && _currentMode == "notification" && inZone && !_isDraggingFile && !_isDropZoneActive)
             {
                 if (++_hoverCounter >= HOVER_TICKS_TO_OPEN) { OpenIsland(); _hoverCounter = 0; }
             }
             else if ((_isIslandOpen || _isDropZoneActive) && !inZone)
             {
-                int ticksToClose = _isDropZoneActive ? 30 : HOVER_TICKS_TO_CLOSE; // 30 ticks = 3 segundos
+                int ticksToClose = _isDropZoneActive ? 30 : HOVER_TICKS_TO_CLOSE;
                 if (++_hoverCounter >= ticksToClose) 
                 { 
                     if (_isIslandOpen) CloseIsland();
@@ -355,108 +276,26 @@ namespace DynamicIslandWindows
             }
         }
 
-        // ─── Animações Fluidas de Janela ──────────────────────────────────────────
         private double GetDynamicCompactWidth()
         {
             if (miniIslandPanel == null) return 340;
-
-            // Força a medição do painel compacto para descobrir a largura necessária para o texto atual
             miniIslandPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            
-            // Largura ideal do conteúdo + padding do border (24px) + margem de folga (16px) + 20px de margem da janela
             double idealWidth = miniIslandPanel.DesiredSize.Width + 60;
-
-            // Limites mínimo e máximo para a estética clássica da pílula compacta
-            return Math.Clamp(idealWidth, 200, 400);
+            return Math.Clamp(idealWidth, 200, 380);
         }
 
-        // ─── Motor de Animação Atômica Win32 via CompositionTarget.Rendering ────
-        // Usa EXCLUSIVAMENTE SetWindowPos para mover e redimensionar a janela a cada frame.
-        // NÃO toca em Width/Height/Top do WPF durante a animação, evitando o conflito
-        // de dupla-via que causava o "bounce" (WPF e Win32 lutando pela posição).
-        public void StartAtomicTransition(double targetWidth, double targetHeight, double bottomAnchor)
+        // ─── Motor de Animação por Hardware Puro ──────────────────────────────────
+        // Executado diretamente pela GPU, sem recalcular buffers de janela do SO.
+        private void AnimateBorder(double targetWidth, double targetHeight)
         {
-            if (_hwnd == IntPtr.Zero)
-            {
-                _hwnd = new WindowInteropHelper(this).Handle;
-            }
-            if (!_dpiCached) CacheDpi();
+            var duration = TimeSpan.FromMilliseconds(300);
+            var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
 
-            // Se já estiver animando, captura os valores interpolados atuais como novo ponto de partida
-            if (_isAnimating && _animStopwatch != null)
-            {
-                double elapsed = _animStopwatch.Elapsed.TotalMilliseconds;
-                double t = Math.Min(elapsed / ANIM_DURATION_MS, 1.0);
-                double easedT = 1.0 - Math.Pow(1.0 - t, 3);
+            var widthAnim = new DoubleAnimation(islandBorder.Width, targetWidth, duration) { EasingFunction = easing };
+            var heightAnim = new DoubleAnimation(islandBorder.Height, targetHeight, duration) { EasingFunction = easing };
 
-                _animStartWidth = _animStartWidth + (_animTargetWidth - _animStartWidth) * easedT;
-                _animStartHeight = _animStartHeight + (_animTargetHeight - _animStartHeight) * easedT;
-                _animStartTop = _animStartTop + (_animTargetTop - _animStartTop) * easedT;
-            }
-            else
-            {
-                _animStartWidth = this.Width;
-                _animStartHeight = this.Height;
-                _animStartTop = this.Top;
-            }
-
-            _animTargetWidth = targetWidth;
-            _animTargetHeight = targetHeight;
-            _animTargetTop = bottomAnchor - targetHeight;
-
-            if (!_isAnimating)
-            {
-                CompositionTarget.Rendering += OnAnimationFrame;
-            }
-
-            _animStopwatch = Stopwatch.StartNew();
-            _isAnimating = true;
-        }
-
-        private void OnAnimationFrame(object? sender, EventArgs e)
-        {
-            if (!_isAnimating || _animStopwatch == null || _hwnd == IntPtr.Zero) return;
-
-            double elapsed = _animStopwatch.Elapsed.TotalMilliseconds;
-            double t = Math.Min(elapsed / ANIM_DURATION_MS, 1.0);
-
-            // CubicEaseOut: f(t) = 1 − (1−t)³
-            double easedT = 1.0 - Math.Pow(1.0 - t, 3);
-
-            double currentWidth = _animStartWidth + (_animTargetWidth - _animStartWidth) * easedT;
-            double currentHeight = _animStartHeight + (_animTargetHeight - _animStartHeight) * easedT;
-            double currentTop = _animStartTop + (_animTargetTop - _animStartTop) * easedT;
-
-            // Conversão DPI-aware para pixels físicos com arredondamento coordenado
-            int physicalWidth = (int)Math.Round(currentWidth * _dpiX);
-            int physicalHeight = (int)Math.Round(currentHeight * _dpiY);
-            int physicalLeft = (int)Math.Round(this.Left * _dpiX);
-            int physicalTop = (int)Math.Round(currentTop * _dpiY);
-
-            // Move e redimensiona a janela em UM ÚNICO frame atômico do DWM
-            // Nenhuma propriedade WPF é alterada aqui — isso elimina o conflito de dupla-via
-            SetWindowPos(_hwnd, HWND_TOPMOST, physicalLeft, physicalTop, physicalWidth, physicalHeight, SWP_NOACTIVATE);
-
-            if (t >= 1.0)
-            {
-                CompositionTarget.Rendering -= OnAnimationFrame;
-                _isAnimating = false;
-                _animStopwatch = null;
-
-                // Sincroniza as propriedades do WPF apenas UMA VEZ ao final da animação
-                this.Width = _animTargetWidth;
-                this.Height = _animTargetHeight;
-                this.Top = _animTargetTop;
-            }
-        }
-
-        // ─── Animações Fluidas de Janela ──────────────────────────────────────────
-        private void AnimateWindowSize(double targetWidth, double targetHeight)
-        {
-            // A âncora inferior = PrimaryScreenHeight + 10 para compensar a margem de 10px
-            // do Border que se estende abaixo da borda visível, mantendo a pílula encaixada na taskbar
-            double bottomAnchor = SystemParameters.PrimaryScreenHeight + 10 - (2.0 / _dpiY);
-            StartAtomicTransition(targetWidth, targetHeight, bottomAnchor);
+            islandBorder.BeginAnimation(Border.WidthProperty, widthAnim);
+            islandBorder.BeginAnimation(Border.HeightProperty, heightAnim);
         }
 
         private void OpenIsland()
@@ -465,18 +304,12 @@ namespace DynamicIslandWindows
             _isIslandOpen = true;
             _hoverCounter = 0;
 
-            // A pílula permanece visível no topo; separador e painel expandem abaixo
             miniIslandPanel.Visibility = Visibility.Visible;
             islandSeparator.Visibility = Visibility.Visible;
             dropZonePanel.Visibility = Visibility.Collapsed;
             expandedIslandPanel.Visibility = Visibility.Visible;
 
-            if (expandedRow != null)
-            {
-                expandedRow.Height = new GridLength(1, GridUnitType.Star);
-            }
-
-            AnimateWindowSize(ISLAND_OPEN_W, ISLAND_OPEN_H);
+            AnimateBorder(ISLAND_OPEN_W, ISLAND_OPEN_H);
         }
 
         private void CloseIsland()
@@ -489,13 +322,8 @@ namespace DynamicIslandWindows
             dropZonePanel.Visibility = Visibility.Collapsed;
             miniIslandPanel.Visibility = Visibility.Visible;
 
-            if (expandedRow != null)
-            {
-                expandedRow.Height = new GridLength(0);
-            }
-
             double dynamicWidth = GetDynamicCompactWidth();
-            AnimateWindowSize(dynamicWidth, _miniBaseHeightLogica + 20);
+            AnimateBorder(dynamicWidth, _miniBaseHeightLogica);
         }
 
         private void ActivateDropMode()
@@ -525,11 +353,6 @@ namespace DynamicIslandWindows
             expandedIslandPanel.Visibility = Visibility.Collapsed;
             dropZonePanel.Visibility = Visibility.Visible;
 
-            if (expandedRow != null)
-            {
-                expandedRow.Height = new GridLength(1, GridUnitType.Star);
-            }
-
             if (islandBorder != null)
             {
                 var dropShadow = new DropShadowEffect
@@ -549,7 +372,7 @@ namespace DynamicIslandWindows
                 dropShadow.BeginAnimation(DropShadowEffect.OpacityProperty, opacityAnim);
             }
 
-            AnimateWindowSize(DROPZONE_W, DROPZONE_H);
+            AnimateBorder(DROPZONE_W, DROPZONE_H);
         }
 
         // ─── Sliders ──────────────────────────────────────────────────────────────
@@ -625,7 +448,7 @@ namespace DynamicIslandWindows
             }
             else
             {
-                border.Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x20)); // Nova cor escura padrão (#FF1e1e20)
+                border.Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x20));
                 border.BorderBrush = new SolidColorBrush(Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF));
                 icon.Foreground = Brushes.White;
             }
@@ -645,7 +468,7 @@ namespace DynamicIslandWindows
             catch (Exception ex) { Debug.WriteLine($"[FilePicker] {ex.Message}"); }
         }
 
-        // ─── Drag & Drop NATIVO PERFEITO ──────────────────────────────────────────
+        // ─── Drag & Drop NATIVO PERFEITO (Focado apenas no Border) ──────────────────
         private void Window_DragEnter(object sender, DragEventArgs e)
         {
             _dragLeaveTimer?.Stop();
@@ -677,12 +500,14 @@ namespace DynamicIslandWindows
         private void DragLeaveTimer_Tick(object? sender, EventArgs e)
         {
             _dragLeaveTimer!.Stop();
-            if (!GetCursorPos(out POINT cursor)) return;
+            Point mousePos = Mouse.GetPosition(this);
 
-            if (!_dpiCached) CacheDpi();
-            double lx = cursor.X / _dpiX; double ly = cursor.Y / _dpiY;
+            // Se saiu da área física do Border visível, fecha a zona de drop
+            bool inside = mousePos.X >= 10 &&
+                          mousePos.X <= 10 + islandBorder.ActualWidth &&
+                          mousePos.Y >= (this.Height - 10 - islandBorder.ActualHeight) &&
+                          mousePos.Y <= this.Height - 10;
 
-            bool inside = lx >= this.Left && lx <= this.Left + this.Width && ly >= this.Top  && ly <= this.Top  + this.Height;
             if (!inside) DeactivateDropMode();
         }
 
@@ -722,7 +547,7 @@ namespace DynamicIslandWindows
             catch (Exception ex) { Debug.WriteLine($"[Settings] {ex.Message}"); }
         }
 
-        // ─── Atualização Sincronizada de Mídia (Blinda Carregamento de Imagem) ─────
+        // ─── Atualização Sincronizada de Mídia ─────────────────────────────────────
         private async Task UpdateMediaInfoAsync()
         {
             if (Interlocked.CompareExchange(ref _mediaUpdateInProgress, 1, 0) != 0)
@@ -745,7 +570,6 @@ namespace DynamicIslandWindows
                         string playGlyph = state.IsPlaying ? "\uE769" : "\uE768";
                         txtMiniPlayIcon.Text = playGlyph;
 
-                        // CORREÇÃO CRÍTICA: Carrega a imagem a partir dos bytes Base64 usando MemoryStream
                         if (!string.IsNullOrEmpty(state.Thumbnail))
                         {
                             try
@@ -754,14 +578,12 @@ namespace DynamicIslandWindows
                                 var bitmap = new BitmapImage();
                                 bitmap.BeginInit();
                                 bitmap.StreamSource = new System.IO.MemoryStream(binaryData);
-                                bitmap.CacheOption = BitmapCacheOption.OnLoad; // Desbloqueia o recurso imediatamente
+                                bitmap.CacheOption = BitmapCacheOption.OnLoad;
                                 bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
                                 bitmap.EndInit();
-                                bitmap.Freeze(); // Melhora performance em WPF
+                                bitmap.Freeze();
 
-                                // Pintando o Background com ImageBrush programático para evitar bugs do WPF com Namespaces complexos
                                 miniThumbBorder.Background = new ImageBrush(bitmap) { Stretch = Stretch.UniformToFill };
-
                                 miniThumbBorder.Visibility = Visibility.Visible;
                                 txtMiniIcon.Visibility = Visibility.Collapsed;
                             }
@@ -779,7 +601,6 @@ namespace DynamicIslandWindows
                     else
                     {
                         miniMediaControls.Visibility = Visibility.Collapsed;
-
                         txtMiniTitle.Text = "Dynamic Island";
                         txtMiniSubtitle.Text = "Notificações ativas";
 
@@ -789,11 +610,10 @@ namespace DynamicIslandWindows
                         txtMiniIcon.Text = "\uE990"; 
                     }
 
-                    // Redimensiona dinamicamente a pílula compacta de acordo com o novo texto de mídia
                     if (!_isIslandOpen && !_isDropZoneActive)
                     {
                         double targetW = GetDynamicCompactWidth();
-                        AnimateWindowSize(targetW, _miniBaseHeightLogica + 20);
+                        AnimateBorder(targetW, _miniBaseHeightLogica);
                     }
                 });
             }
@@ -806,7 +626,7 @@ namespace DynamicIslandWindows
             miniThumbBorder.Background = new SolidColorBrush(Color.FromArgb(0x2A, 0xFF, 0xFF, 0xFF));
             miniThumbBorder.Visibility = Visibility.Collapsed;
             txtMiniIcon.Visibility = Visibility.Visible;
-            txtMiniIcon.Text = "\uE958"; // Nota musical
+            txtMiniIcon.Text = "\uE958";
         }
 
         // ─── Controles de Mídia ──────────────────────────────────────────────────

@@ -8,12 +8,7 @@ namespace DynamicIslandWindows.Services
     {
         public static void AnimateIsland(Window window, double targetWidth, double targetHeight, double bottomAnchor)
         {
-            // Se for a NativeIslandWindow principal, redireciona para a animação atômica livre de jitter vertical
-            if (window is NativeIslandWindow islandWindow)
-            {
-                islandWindow.StartAtomicTransition(targetWidth, targetHeight, bottomAnchor);
-                return;
-            }
+            // A NativeIslandWindow agora gerencia de forma auto-contida sua própria animação por hardware puro (WPF puro)
 
             var duration = TimeSpan.FromMilliseconds(350);
             var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
