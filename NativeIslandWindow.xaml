@@ -19,31 +19,31 @@
     -->
     <Window.Resources>
         <!-- 
-          ESTILO PREMIUM DO SLIDER (Modern Fluent Style)
-          Redesenha os sliders de volume e brilho com a linguagem do Windows 11.
+          ESTILO PREMIUM DO SLIDER ESTILO WINDOWS 11 NOTIFICATION CENTER (MATTER THEME)
+          - Trilha espessa de 12px com CornerRadius de 6px (Capsule Shape)
+          - Cor ativa Coral (#FFF26A59) e inativa Charcoal (#FF161618)
+          - Sem botão de arrasto visível, idêntico à referência do Windhawk
         -->
         <Style x:Key="ModernFluentSliderStyle" TargetType="Slider">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="MinHeight" Value="24" />
+            <Setter Property="MinHeight" Value="12" />
+            <Setter Property="Height" Value="12" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Slider">
                         <Grid Background="{TemplateBinding Background}">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <!-- Linha central de MinHeight/MaxHeight que define a zona ativa do controle -->
-                                <RowDefinition Height="Auto" MinHeight="{TemplateBinding MinHeight}" MaxHeight="{TemplateBinding MinHeight}" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            
-                            <!-- Trilha de fundo (cinza translúcido sutil) -->
-                            <Border Grid.Row="1" x:Name="TrackBackground" Background="#33FFFFFF" Height="4" CornerRadius="2" VerticalAlignment="Center" Margin="6,0" />
+                            <!-- Trilha de fundo (cinza escuro, representando a parte não preenchida) -->
+                            <Border x:Name="TrackBackground" 
+                                    Background="#FF161618" 
+                                    Height="12" 
+                                    CornerRadius="6" 
+                                    VerticalAlignment="Center" />
                             
                             <!-- Track ativa do slider -->
-                            <Track Grid.Row="1" x:Name="PART_Track">
-                                <!-- Área preenchida à esquerda (azul Fluent vibrante) -->
+                            <Track x:Name="PART_Track">
+                                <!-- Área preenchida à esquerda (Coral idêntico à imagem) -->
                                 <Track.DecreaseRepeatButton>
                                     <RepeatButton Command="{x:Static Slider.DecreaseLarge}">
                                         <RepeatButton.Style>
@@ -51,7 +51,7 @@
                                                 <Setter Property="Template">
                                                     <Setter.Value>
                                                         <ControlTemplate TargetType="RepeatButton">
-                                                            <Border Background="#885959ff" Height="4" CornerRadius="2" VerticalAlignment="Center" Margin="6,0,0,0" />
+                                                            <Border Background="#6aff8f59" Height="12" CornerRadius="6" VerticalAlignment="Center" />
                                                         </ControlTemplate>
                                                     </Setter.Value>
                                                 </Setter>
@@ -60,7 +60,7 @@
                                     </RepeatButton>
                                 </Track.DecreaseRepeatButton>
                                 
-                                <!-- Área vazia à direita (transparente, permitindo ver a trilha de fundo) -->
+                                <!-- Área vazia à direita (Transparente para revelar o TrackBackground) -->
                                 <Track.IncreaseRepeatButton>
                                     <RepeatButton Command="{x:Static Slider.IncreaseLarge}">
                                         <RepeatButton.Style>
@@ -77,53 +77,18 @@
                                     </RepeatButton>
                                 </Track.IncreaseRepeatButton>
                                 
-                                <!-- Botão arrastável (Thumb) -->
+                                <!-- Botão invisível de arrasto (Thumb) para manter a fidelidade visual sem o círculo branco, mas altamente arrastável -->
                                 <Track.Thumb>
                                     <Thumb x:Name="PART_Thumb" Width="12" Height="12" Focusable="False">
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="Thumb">
-                                                <Grid>
-                                                    <!-- Círculo branco do Thumb com borda azul e transformação de escala tátil -->
-                                                    <Ellipse x:Name="thumbEllipse" Fill="White" Width="12" Height="12" Stroke="#4CC2FF" StrokeThickness="1" RenderTransformOrigin="0.5,0.5">
-                                                        <Ellipse.RenderTransform>
-                                                            <ScaleTransform ScaleX="1.0" ScaleY="1.0" />
-                                                        </Ellipse.RenderTransform>
-                                                    </Ellipse>
-                                                </Grid>
-                                                <ControlTemplate.Triggers>
-                                                    <!-- Animação física de aumento ao passar o mouse (Hover: +25% de escala) -->
-                                                    <Trigger Property="IsMouseOver" Value="True">
-                                                        <Setter TargetName="thumbEllipse" Property="Fill" Value="#4CC2FF" />
-                                                        <Setter TargetName="thumbEllipse" Property="Stroke" Value="White" />
-                                                        <Setter TargetName="thumbEllipse" Property="RenderTransform">
-                                                            <Setter.Value>
-                                                                <ScaleTransform ScaleX="1.25" ScaleY="1.25" />
-                                                            </Setter.Value>
-                                                        </Setter>
-                                                    </Trigger>
-                                                    <!-- Animação física ao arrastar (Drag: +35% de escala e cor mais forte) -->
-                                                    <Trigger Property="IsDragging" Value="True">
-                                                        <Setter TargetName="thumbEllipse" Property="Fill" Value="#3399FF" />
-                                                        <Setter TargetName="thumbEllipse" Property="Stroke" Value="White" />
-                                                        <Setter TargetName="thumbEllipse" Property="RenderTransform">
-                                                            <Setter.Value>
-                                                                <ScaleTransform ScaleX="1.35" ScaleY="1.35" />
-                                                            </Setter.Value>
-                                                        </Setter>
-                                                    </Trigger>
-                                                </ControlTemplate.Triggers>
+                                                <Grid Background="Transparent" Width="12" Height="12" />
                                             </ControlTemplate>
                                         </Thumb.Template>
                                     </Thumb>
                                 </Track.Thumb>
                             </Track>
                         </Grid>
-                        <ControlTemplate.Triggers>
-                            <!-- Trilha mais escura caso o slider esteja desabilitado -->
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="TrackBackground" Property="Background" Value="#1AFFFFFF" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -183,23 +148,21 @@
         </Style>
 
         <!-- 
-          BOTOES DE TOGGLE DO PAINEL EXPANDIDO
+          BOTOES DE TOGGLE DO PAINEL EXPANDIDO (Completamente Sem Bordas)
           Fundo translúcido, bordas redondas e feedback visual ativo.
         -->
         <Style x:Key="ToggleButtonStyle" TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
             <Setter Property="Background" Value="#FF1e1e20" />
             <Setter Property="CornerRadius" Value="12.5" />
-            <Setter Property="BorderThickness" Value="0.5" />
-            <Setter Property="BorderBrush" Value="#1AFFFFFF" />
+            <Setter Property="BorderThickness" Value="0" /> <!-- Removido a borda cinza para visual mais plano/flat -->
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Padding" Value="8" />
-            <Setter Property="Width" Value="120" />
+            <Setter Property="Width" Value="126" />
             <Setter Property="Height" Value="40" />
             <Style.Triggers>
                 <!-- Hover no toggle: aumenta a iluminação de fundo -->
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="#FF444444" />
-                    <Setter Property="BorderBrush" Value="#33FFFFFF" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -227,9 +190,9 @@
                 Background="Black"
                 CornerRadius="22.5"
                 BorderBrush="#2D2D2D"
-                BorderThickness="1"
+                BorderThickness="0"
                 Margin="10"
-                Padding="10,5,10,5"
+                Padding="10,6.5,10,6.5"
                 Width="300"
                 Height="43"
                 HorizontalAlignment="Left"
@@ -242,7 +205,7 @@
                 Drop="Window_Drop"
                 MouseLeftButtonDown="IslandBorder_MouseLeftButtonDown">
             
-        <Grid>
+        <Grid VerticalAlignment="Center">
             <!-- 
               GRID PRINCIPAL DE POSICIONAMENTO E ANCORAGEM
               Contém a inversão estética onde o painel expandido se estende para cima (Row 0),
@@ -259,23 +222,23 @@
                 </Grid.RowDefinitions>
 
                 <!-- 
-                  ══ Row 0: Painel Expandido ══════════════════════════════════════════
+                  ══ Row 0: Painel Expandido (Margem ajustada para exatamente 10px no topo) ══════════════════════════════════════════
                 -->
-                <Grid Name="expandedIslandPanel" Grid.Row="0" Visibility="Collapsed" Margin="0,5,0,0">
+                <Grid Name="expandedIslandPanel" Grid.Row="0" Visibility="Collapsed" Margin="0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     
-                    <!-- Row 0: Grade de Toggles Rápidos -->
-                    <Grid Grid.Row="0" Margin="0,10,0,10" Width="370" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <!-- Row 0: Grade de Toggles Rápidos (Espaçamento inferior reduzido para 5px para aproximar do slider) -->
+                    <Grid Grid.Row="0" Margin="0,0,0,5" Width="388" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="126" />
                             <ColumnDefinition Width="5" />
-                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="126" />
                             <ColumnDefinition Width="5" />
-                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="126" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="40" />
@@ -384,30 +347,30 @@
                         </Border>
                     </Grid>
 
-                    <!-- Row 1: Sliders de Brilho e Volume -->
+                    <!-- Row 1: Sliders de Brilho e Volume (Completamente Sem Bordas e Espaçamento de 5px) -->
                     <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,0,0,5">
-                        <Border Background="#FF1e1e20" BorderBrush="#1AFFFFFF" BorderThickness="0.5" Padding="10,8" CornerRadius="12.5" Width="370" Height="80">
+                        <Border Background="#FF1e1e20" BorderThickness="0" Padding="12,10" CornerRadius="12.5" Width="388" Height="84">
                             <StackPanel>
                                 <!-- Slider: Brilho da Tela -->
-                                <Grid Margin="0,0,0,8">
+                                <Grid Margin="0,0,0,6" Height="28">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="24" />
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="40" />
+                                        <ColumnDefinition Width="38" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource FluentIcon}" Text="&#xE706;" FontSize="15" Margin="0,0,10,0" Opacity="0.8" />
+                                    <TextBlock Grid.Column="0" Style="{StaticResource FluentIcon}" Text="&#xE706;" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="0.8" />
                                     <Slider Style="{StaticResource ModernFluentSliderStyle}" Grid.Column="1" Name="brightnessSlider" Minimum="0" Maximum="100" Value="70" VerticalAlignment="Center" ValueChanged="BrightnessSlider_ValueChanged" />
                                     <TextBlock Grid.Column="2" Name="txtBrightnessVal" Style="{StaticResource FluentText}" Text="70%" FontSize="11" FontWeight="Medium" HorizontalAlignment="Right" VerticalAlignment="Center" Opacity="0.6" />
                                 </Grid>
 
                                 <!-- Slider: Volume Geral -->
-                                <Grid>
+                                <Grid Height="28">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="24" />
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="40" />
+                                        <ColumnDefinition Width="38" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource FluentIcon}" Text="&#xE995;" FontSize="15" Margin="0,0,10,0" Opacity="0.8" />
+                                    <TextBlock Grid.Column="0" Style="{StaticResource FluentIcon}" Text="&#xE995;" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="0.8" />
                                     <Slider Style="{StaticResource ModernFluentSliderStyle}" Grid.Column="1" Name="volumeSlider" Minimum="0" Maximum="100" Value="50" VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged" />
                                     <TextBlock Grid.Column="2" Name="txtVolumeVal" Style="{StaticResource FluentText}" Text="50%" FontSize="11" FontWeight="Medium" HorizontalAlignment="Right" VerticalAlignment="Center" Opacity="0.6" />
                                 </Grid>
@@ -415,19 +378,17 @@
                         </Border>
                     </StackPanel>
 
-                    <!-- Row 2: Todas as Configurações (Rodapé) -->
+                    <!-- Row 2: Todas as Configurações (Rodapé Completamente Sem Bordas) -->
                     <Grid Grid.Row="2">
-                        <Border CornerRadius="12.5" Width="370" Height="40" MouseLeftButtonDown="OpenSettings_Click" Cursor="Hand" Name="btnAllSettings" Margin="0,0,0,10">
+                        <Border CornerRadius="12.5" Width="388" Height="40" MouseLeftButtonDown="OpenSettings_Click" Cursor="Hand" Name="btnAllSettings" Margin="0,0,0,5">
                             <Border.Style>
                                 <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
                                     <Setter Property="Background" Value="#FF1e1e20" />
-                                    <Setter Property="BorderBrush" Value="#1AFFFFFF" />
-                                    <Setter Property="BorderThickness" Value="0.5" />
+                                    <Setter Property="BorderThickness" Value="0" /> <!-- Removido a borda cinza -->
                                     <Setter Property="Padding" Value="12,11" />
                                     <Style.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
                                             <Setter Property="Background" Value="#FF444444" />
-                                            <Setter Property="BorderBrush" Value="#33FFFFFF" />
                                         </Trigger>
                                     </Style.Triggers>
                                 </Style>
@@ -461,7 +422,7 @@
                 </Grid>
 
                 <!-- 
-                  ══ Row 0: Drop Zone (Painel de Arquivo Arrastado) ══════════════════════
+                  ══ Row 0: Drop Zone (Painel de Arquivo Arrastado - Sem Bordas Internas) ══════════════════════
                 -->
                 <Grid Name="dropZonePanel" Grid.Row="0" Visibility="Collapsed">
                     <Grid.RowDefinitions>
@@ -471,7 +432,7 @@
                     </Grid.RowDefinitions>
 
                     <!-- Cabeçalho com Nome do Arquivo -->
-                    <Grid Grid.Row="0" Margin="0,0,0,12">
+                     <Grid Grid.Row="0" Margin="0,5,0,5">
                         <StackPanel HorizontalAlignment="Left">
                             <TextBlock Style="{StaticResource FluentText}" FontSize="13" FontWeight="Bold" Text="Opções de Ficheiro" />
                             <TextBlock Name="txtDropFileName" Style="{StaticResource FluentText}" FontSize="10.5" Opacity="0.6" Margin="0,2,0,0" MaxWidth="220" />
@@ -486,12 +447,10 @@
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
                                 <Setter Property="Background" Value="#FF1e1e20" />
-                                <Setter Property="BorderBrush" Value="#1AFFFFFF" />
-                                <Setter Property="BorderThickness" Value="0.5" />
+                                <Setter Property="BorderThickness" Value="0" /> <!-- Removido a borda cinza -->
                                 <Style.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
                                         <Setter Property="Background" Value="#FF444444" />
-                                        <Setter Property="BorderBrush" Value="#334CC2FF" />
                                     </Trigger>
                                 </Style.Triggers>
                             </Style>
@@ -516,8 +475,7 @@
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
                                 <Setter Property="Background" Value="#FF1e1e20" />
-                                <Setter Property="BorderBrush" Value="#1AFFFFFF" />
-                                <Setter Property="BorderThickness" Value="0.5" />
+                                <Setter Property="BorderThickness" Value="0" /> <!-- Removido a borda cinza -->
                                 <Style.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
                                         <Setter Property="Background" Value="#FF444444" />
@@ -536,12 +494,16 @@
                   ══ Row 1: Separador Horizontal Discreto ═════════════════════════════
                 -->
                 <Border Grid.Row="1" Name="islandSeparator" Visibility="Collapsed"
-                        Height="1" Background="#14FFFFFF" Margin="0,0,0,10" />
+                        Height="1" Background="#14FFFFFF" Margin="0,0,0,5" />
 
                 <!-- 
                   ══ Row 2: Pílula Compacta (Base Central) ════════════════════════════
                 -->
-                <Grid Name="miniIslandPanel" Grid.Row="2" VerticalAlignment="Center">
+                <Grid Name="miniIslandPanel" Grid.Row="2" VerticalAlignment="Center"
+                      RenderTransformOrigin="0.5,0.5">
+                    <Grid.RenderTransform>
+                        <TranslateTransform X="0" />
+                    </Grid.RenderTransform>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
@@ -553,7 +515,7 @@
                         <TextBlock Name="txtMiniIcon" Style="{StaticResource FluentIcon}" FontSize="16" Text="&#xE990;" Foreground="#4CC2FF" VerticalAlignment="Center" />
                     </Grid>
 
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,8,0">
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,2,0">
                         <TextBlock Name="txtMiniTitle" Style="{StaticResource FluentText}" FontSize="11.5" FontWeight="SemiBold" Text="Carregando..." VerticalAlignment="Center" MaxWidth="180" />
                         <TextBlock Name="txtMiniSubtitle" Style="{StaticResource FluentText}" FontSize="9.5" Opacity="0.65" Text="Aguarde" VerticalAlignment="Center" Margin="0,1,0,0" MaxWidth="180" />
                     </StackPanel>

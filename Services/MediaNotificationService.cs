@@ -85,7 +85,20 @@ namespace DynamicIslandWindows.Services
                         }
                     }
 
-                    state.Mode = "music";
+                    var playbackStatus = session.GetPlaybackInfo()?.PlaybackStatus;
+                    if (playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Stopped ||
+                        playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed)
+                    {
+                        state.Mode = "notification";
+                        var (notifTitle, notifContent) = await GetLatestNotificationAsync();
+                        state.Title = notifTitle;
+                        state.Subtitle = notifContent;
+                        state.Thumbnail = string.Empty;
+                    }
+                    else
+                    {
+                        state.Mode = "music";
+                    }
                 }
                 else
                 {

@@ -79,7 +79,7 @@ namespace DynamicIslandWindows
 
         // Dimensões físicas lógicas finais do widget (sincronizadas e sem saltos)
         private const double ISLAND_OPEN_W       = 410;
-        private const double ISLAND_OPEN_H       = 396;
+        private const double ISLAND_OPEN_H       = 374;
         private const double DROPZONE_W          = 320;
         private const double DROPZONE_H          = 200;
 
@@ -280,7 +280,7 @@ namespace DynamicIslandWindows
         {
             if (miniIslandPanel == null) return 340;
             miniIslandPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            double idealWidth = miniIslandPanel.DesiredSize.Width + 60;
+            double idealWidth = miniIslandPanel.DesiredSize.Width + 30;
             return Math.Clamp(idealWidth, 200, 380);
         }
 
@@ -304,6 +304,13 @@ namespace DynamicIslandWindows
             _isIslandOpen = true;
             _hoverCounter = 0;
 
+            if (islandBorder != null)
+            {
+                islandBorder.Padding = new Thickness(10, 12, 10, 12);
+            }
+            if (txtMiniTitle != null) txtMiniTitle.MaxWidth = 260;
+            if (txtMiniSubtitle != null) txtMiniSubtitle.MaxWidth = 260;
+
             miniIslandPanel.Visibility = Visibility.Visible;
             islandSeparator.Visibility = Visibility.Visible;
             dropZonePanel.Visibility = Visibility.Collapsed;
@@ -316,6 +323,13 @@ namespace DynamicIslandWindows
         {
             _isIslandOpen = false;
             _hoverCounter = 0;
+
+            if (islandBorder != null)
+            {
+                islandBorder.Padding = new Thickness(10, 6.5, 10, 6.5);
+            }
+            if (txtMiniTitle != null) txtMiniTitle.MaxWidth = 220;
+            if (txtMiniSubtitle != null) txtMiniSubtitle.MaxWidth = 220;
 
             expandedIslandPanel.Visibility = Visibility.Collapsed;
             islandSeparator.Visibility = Visibility.Collapsed;
@@ -340,6 +354,7 @@ namespace DynamicIslandWindows
 
             if (islandBorder != null)
             {
+                islandBorder.Padding = new Thickness(10, 6.5, 10, 6.5);
                 islandBorder.Effect = null;
                 islandBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x2D));
             }
@@ -355,6 +370,7 @@ namespace DynamicIslandWindows
 
             if (islandBorder != null)
             {
+                islandBorder.Padding = new Thickness(10, 12, 10, 12);
                 var dropShadow = new DropShadowEffect
                 {
                     Color = Color.FromRgb(0x4C, 0xC2, 0xFF),
