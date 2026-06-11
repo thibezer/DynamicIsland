@@ -1,10 +1,9 @@
 {
   "version": 2,
-  "dgSpecHash": "Pz9avIsbNGM=",
+  "dgSpecHash": "ug55LtBSPqc=",
   "success": true,
   "projectFilePath": "D:\\OneDrive_Thiago\\OneDrive\\Desenvolvimento\\DynamicIsland\\DynamicIsland.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\Thiago\\.nuget\\packages\\microsoft.web.webview2\\1.0.3912.50\\microsoft.web.webview2.1.0.3912.50.nupkg.sha512",
     "C:\\Users\\Thiago\\.nuget\\packages\\naudio\\2.2.1\\naudio.2.2.1.nupkg.sha512",
     "C:\\Users\\Thiago\\.nuget\\packages\\naudio.asio\\2.2.1\\naudio.asio.2.2.1.nupkg.sha512",
     "C:\\Users\\Thiago\\.nuget\\packages\\naudio.core\\2.2.1\\naudio.core.2.2.1.nupkg.sha512",

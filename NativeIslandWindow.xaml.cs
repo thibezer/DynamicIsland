@@ -102,6 +102,8 @@ namespace DynamicIslandWindows
         private HwndSource? _hwndSource;
         private int _topmostTickCounter = 0;
         private const int TOPMOST_REFRESH_TICKS = 10;
+        private int _fullScreenCheckCounter = 0;
+        private bool _isFullScreenCached = false;
 
         // Estados dos Toggles
         private bool _wifiOn = true;
@@ -130,7 +132,12 @@ namespace DynamicIslandWindows
             _hardwareService = new HardwareService();
             _mediaService = new MediaNotificationService();
             
-            _mediaService.StateChanged += async (s, e) => await UpdateMediaInfoAsync();
+            _mediaService.StateChanged += MediaService_StateChanged;
+        }
+
+        private async void MediaService_StateChanged(object? sender, EventArgs e)
+        {
+            await UpdateMediaInfoAsync();
         }
 
         // ─── Eventos da Janela ───────────────────────────────────────────────────
@@ -172,6 +179,7 @@ namespace DynamicIslandWindows
             }
 
             InitializeTogglesUI();
+            _isFullScreenCached = IsFullScreen();
             SetupHoverTimer();
 
             await _mediaService.InitializeAsync();
@@ -231,8 +239,13 @@ namespace DynamicIslandWindows
 
         private void HoverTimer_Tick(object? sender, EventArgs e)
         {
-            bool fullScreen = IsFullScreen();
-            var targetVisibility = fullScreen ? Visibility.Collapsed : Visibility.Visible;
+            if (++_fullScreenCheckCounter >= 5)
+            {
+                _fullScreenCheckCounter = 0;
+                _isFullScreenCached = IsFullScreen();
+            }
+
+            var targetVisibility = _isFullScreenCached ? Visibility.Collapsed : Visibility.Visible;
             if (this.Visibility != targetVisibility)
             {
                 this.Visibility = targetVisibility;
@@ -736,6 +749,17 @@ namespace DynamicIslandWindows
             if (_disposed) return; _disposed = true;
             _hoverTimer?.Stop(); _mediaTimer?.Stop(); _dragLeaveTimer?.Stop();
             _hoverTimer = _mediaTimer = _dragLeaveTimer = null;
+
+            if (_mediaService != null)
+            {
+                _mediaService.StateChanged -= MediaService_StateChanged;
+                _mediaService.Dispose();
+            }
+
+            if (_hardwareService != null)
+            {
+                _hardwareService.Dispose();
+            }
 
             if (_hwndSource != null)
             {

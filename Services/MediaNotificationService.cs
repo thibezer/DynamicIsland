@@ -17,10 +17,11 @@ namespace DynamicIslandWindows.Services
         public bool IsPlaying { get; set; } = false;
     }
 
-    public class MediaNotificationService
+    public class MediaNotificationService : IDisposable
     {
         public event EventHandler? StateChanged;
         private bool _listenerSetup = false;
+        private bool _disposed = false;
 
         public async Task InitializeAsync()
         {
@@ -31,7 +32,7 @@ namespace DynamicIslandWindows.Services
                 var accessStatus = await listener.RequestAccessAsync();
                 if (accessStatus == UserNotificationListenerAccessStatus.Allowed)
                 {
-                    listener.NotificationChanged += (s, e) => StateChanged?.Invoke(this, EventArgs.Empty);
+                    listener.NotificationChanged += OnNotificationChanged;
                     _listenerSetup = true;
                 }
             }
@@ -39,6 +40,11 @@ namespace DynamicIslandWindows.Services
             {
                 Debug.WriteLine($"[Notifications] {ex.Message}");
             }
+        }
+
+        private void OnNotificationChanged(UserNotificationListener sender, UserNotificationChangedEventArgs args)
+        {
+            StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
         public async Task<MediaNotificationState> GetCurrentStateAsync()
@@ -209,6 +215,27 @@ namespace DynamicIslandWindows.Services
             {
                 Debug.WriteLine($"[MediaCmd] {ex.Message}");
             }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            if (_listenerSetup)
+            {
+                try
+                {
+                    var listener = UserNotificationListener.Current;
+                    listener.NotificationChanged -= OnNotificationChanged;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[NotificationsDispose] {ex.Message}");
+                }
+                _listenerSetup = false;
+            }
+            GC.SuppressFinalize(this);
         }
     }
 }

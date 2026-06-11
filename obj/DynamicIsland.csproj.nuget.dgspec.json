@@ -44,10 +44,6 @@
         "net10.0-windows10.0.19041": {
           "targetAlias": "net10.0-windows10.0.19041.0",
           "dependencies": {
-            "Microsoft.Web.WebView2": {
-              "target": "Package",
-              "version": "[1.0.3912.50, )"
-            },
             "NAudio": {
               "target": "Package",
               "version": "[2.2.1, )"

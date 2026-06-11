@@ -8,33 +8,88 @@ using Windows.Devices.Radios;
 
 namespace DynamicIslandWindows.Services
 {
-    public class HardwareService
+    public class HardwareService : IDisposable
     {
         [DllImport("user32.dll", SetLastError = true)]
         private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
         private const uint KEYEVENTF_KEYDOWN = 0x0000;
         private const uint KEYEVENTF_KEYUP   = 0x0002;
 
+        private MMDeviceEnumerator? _deviceEnumerator;
+        private MMDevice? _defaultAudioDevice;
+        private readonly object _audioLock = new();
+        private bool _disposed = false;
+
+        private MMDevice? GetDefaultAudioDevice()
+        {
+            lock (_audioLock)
+            {
+                try
+                {
+                    if (_deviceEnumerator == null)
+                    {
+                        _deviceEnumerator = new MMDeviceEnumerator();
+                    }
+                    if (_defaultAudioDevice == null)
+                    {
+                        _defaultAudioDevice = _deviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                    }
+                    return _defaultAudioDevice;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[AudioDevice] Erro ao obter endpoint: {ex.Message}");
+                    CleanupAudioDevice();
+                    return null;
+                }
+            }
+        }
+
+        private void CleanupAudioDevice()
+        {
+            lock (_audioLock)
+            {
+                _defaultAudioDevice?.Dispose();
+                _defaultAudioDevice = null;
+                _deviceEnumerator?.Dispose();
+                _deviceEnumerator = null;
+            }
+        }
+
         public int GetCurrentVolume()
         {
             try
             {
-                using var enumerator = new MMDeviceEnumerator();
-                using var device     = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-                return (int)Math.Round(device.AudioEndpointVolume.MasterVolumeLevelScalar * 100);
+                var device = GetDefaultAudioDevice();
+                if (device != null)
+                {
+                    return (int)Math.Round(device.AudioEndpointVolume.MasterVolumeLevelScalar * 100);
+                }
+                return 50;
             }
-            catch { return 50; }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[VolumeGet] {ex.Message}");
+                CleanupAudioDevice();
+                return 50;
+            }
         }
 
         public void SetVolume(int volume)
         {
             try
             {
-                using var enumerator = new MMDeviceEnumerator();
-                using var device     = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-                device.AudioEndpointVolume.MasterVolumeLevelScalar = Math.Clamp(volume / 100f, 0f, 1f);
+                var device = GetDefaultAudioDevice();
+                if (device != null)
+                {
+                    device.AudioEndpointVolume.MasterVolumeLevelScalar = Math.Clamp(volume / 100f, 0f, 1f);
+                }
             }
-            catch (Exception ex) { Debug.WriteLine($"[Volume] {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[VolumeSet] {ex.Message}");
+                CleanupAudioDevice();
+            }
         }
 
         public int GetCurrentBrightness()
@@ -47,7 +102,12 @@ namespace DynamicIslandWindows.Services
                     using var searcher = new ManagementObjectSearcher("root\\WMI", "SELECT CurrentBrightness FROM WmiMonitorBrightness");
                     using var instances = searcher.Get();
                     foreach (ManagementObject o in instances)
-                        return Convert.ToInt32(o.GetPropertyValue("CurrentBrightness"));
+                    {
+                        using (o)
+                        {
+                            return Convert.ToInt32(o.GetPropertyValue("CurrentBrightness"));
+                        }
+                    }
                     return 70;
                 });
 
@@ -60,7 +120,7 @@ namespace DynamicIslandWindows.Services
 
         public void SetBrightness(int brightness)
         {
-            // BLINDAGEM: Não bloqueia o arrastar da barra no HTML
+            // BLINDAGEM: Não bloqueia o arrastar da barra no HTML / UI
             Task.Run(() =>
             {
                 try
@@ -69,7 +129,12 @@ namespace DynamicIslandWindows.Services
                     using var searcher = new ManagementObjectSearcher("root\\WMI", "SELECT * FROM WmiMonitorBrightnessMethods");
                     using var instances = searcher.Get();
                     foreach (ManagementObject o in instances)
-                        o.InvokeMethod("WmiSetBrightness", new object[] { 1, target });
+                    {
+                        using (o)
+                        {
+                            o.InvokeMethod("WmiSetBrightness", new object[] { 1, target });
+                        }
+                    }
                 }
                 catch (Exception ex) { Debug.WriteLine($"[Brightness] {ex.Message}"); }
             });
@@ -139,6 +204,14 @@ namespace DynamicIslandWindows.Services
                 keybd_event(0x5B, 0, KEYEVENTF_KEYUP,   0);
             }
             catch (Exception ex) { Debug.WriteLine($"[Shortcut] {ex.Message}"); }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            CleanupAudioDevice();
+            GC.SuppressFinalize(this);
         }
     }
 }
