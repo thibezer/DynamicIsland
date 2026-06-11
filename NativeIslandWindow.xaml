@@ -18,6 +18,37 @@
       RECURSOS VISUAIS DA JANELA (ESTILOS E EFEITOS FLUENT)
     -->
     <Window.Resources>
+        <SolidColorBrush x:Key="ThemeAccentBrush" Color="#FFF6A733" />
+        <SolidColorBrush x:Key="ThemeAccentTrackBrush" Color="#FFF6A733" />
+        <SolidColorBrush x:Key="IslandBackgroundBrush" Color="Black" />
+        <SolidColorBrush x:Key="IslandInactiveBrush" Color="#FF1E1E20" />
+
+        <!-- Estilo moderno para TextBox Hexadecimal -->
+        <Style x:Key="HexTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="#FF161618" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderBrush" Value="#FF3A3A3C" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Name="Border" CornerRadius="5" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                            <ScrollViewer x:Name="PART_ContentHost" Focusable="false" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="Border" Property="BorderBrush" Value="{DynamicResource ThemeAccentBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <!-- 
           ESTILO PREMIUM DO SLIDER ESTILO WINDOWS 11 NOTIFICATION CENTER (MATTER THEME)
           - Trilha espessa de 12px com CornerRadius de 6px (Capsule Shape)
@@ -27,19 +58,20 @@
         <Style x:Key="ModernFluentSliderStyle" TargetType="Slider">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="MinHeight" Value="12" />
-            <Setter Property="Height" Value="12" />
+            <Setter Property="MinHeight" Value="24" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="IsMoveToPointEnabled" Value="True" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Slider">
-                        <Grid Background="{TemplateBinding Background}">
-                            <!-- Trilha de fundo (cinza escuro, representando a parte não preenchida) -->
-                            <Border x:Name="TrackBackground" 
-                                    Background="#FF161618" 
-                                    Height="12" 
-                                    CornerRadius="6" 
-                                    VerticalAlignment="Center" />
+                        <Grid Background="Transparent" Height="24">
+                               <!-- Trilha de fundo, representando a parte não preenchida (vinculada ao fundo) -->
+                               <Border x:Name="TrackBackground" 
+                                       Background="{DynamicResource IslandBackgroundBrush}" 
+                                       Height="12" 
+                                       CornerRadius="6" 
+                                       VerticalAlignment="Center" />
                             
                             <!-- Track ativa do slider -->
                             <Track x:Name="PART_Track">
@@ -51,7 +83,7 @@
                                                 <Setter Property="Template">
                                                     <Setter.Value>
                                                         <ControlTemplate TargetType="RepeatButton">
-                                                            <Border Background="#6aff8f59" Height="12" CornerRadius="6" VerticalAlignment="Center" />
+                                                            <Border Background="{DynamicResource ThemeAccentTrackBrush}" Height="12" CornerRadius="6" VerticalAlignment="Center" />
                                                         </ControlTemplate>
                                                     </Setter.Value>
                                                 </Setter>
@@ -77,12 +109,12 @@
                                     </RepeatButton>
                                 </Track.IncreaseRepeatButton>
                                 
-                                <!-- Botão invisível de arrasto (Thumb) para manter a fidelidade visual sem o círculo branco, mas altamente arrastável -->
+                                <!-- Botão invisível de arrasto (Thumb) com área de colisão maior de 24x24 para arrastar mais fácil -->
                                 <Track.Thumb>
-                                    <Thumb x:Name="PART_Thumb" Width="12" Height="12" Focusable="False">
+                                    <Thumb x:Name="PART_Thumb" Width="24" Height="24" Focusable="False">
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="Thumb">
-                                                <Grid Background="Transparent" Width="12" Height="12" />
+                                                <Grid Background="Transparent" Width="24" Height="24" />
                                             </ControlTemplate>
                                         </Thumb.Template>
                                     </Thumb>
@@ -152,7 +184,7 @@
           Fundo translúcido, bordas redondas e feedback visual ativo.
         -->
         <Style x:Key="ToggleButtonStyle" TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
-            <Setter Property="Background" Value="#FF1e1e20" />
+            <Setter Property="Background" Value="{DynamicResource IslandInactiveBrush}" />
             <Setter Property="CornerRadius" Value="12.5" />
             <Setter Property="BorderThickness" Value="0" /> <!-- Removido a borda cinza para visual mais plano/flat -->
             <Setter Property="Cursor" Value="Hand" />
@@ -187,7 +219,7 @@
           - AllowDrop="True" e eventos: Agora o Drag & Drop fica restrito apenas à área física visível da pílula.
         -->
         <Border Name="islandBorder"
-                Background="Black"
+                Background="{DynamicResource IslandBackgroundBrush}"
                 CornerRadius="22.5"
                 BorderBrush="#2D2D2D"
                 BorderThickness="0"
@@ -224,6 +256,109 @@
                 <!-- 
                   ══ Row 0: Painel Expandido (Margem ajustada para exatamente 10px no topo) ══════════════════════════════════════════
                 -->
+                <!-- NOVO: appearancePanel para configurar a cor da ilha -->
+                <Grid Name="appearancePanel" Grid.Row="0" Visibility="Collapsed" Margin="0,5,0,10" Width="388" HorizontalAlignment="Center">
+                    <Grid.RowDefinitions>
+                        <!-- Linha 0: Cabeçalho com botão Voltar -->
+                        <RowDefinition Height="Auto" />
+                        <!-- Linha 1: Bloco de Destaque -->
+                        <RowDefinition Height="Auto" />
+                        <!-- Linha 2: Bloco de Fundo Geral -->
+                        <RowDefinition Height="Auto" />
+                        <!-- Linha 3: Bloco de Botões Inativos -->
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    
+                    <!-- Cabeçalho -->
+                    <Grid Grid.Row="0" Margin="0,0,0,10">
+                        <Border Style="{StaticResource TactileBorderButtonStyle}" Width="30" Height="30" CornerRadius="15" Background="{DynamicResource IslandInactiveBrush}" HorizontalAlignment="Left" Cursor="Hand" MouseLeftButtonDown="BackToMainPanel_Click">
+                            <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE72B;" FontSize="12" />
+                        </Border>
+                        <TextBlock Style="{StaticResource FluentText}" Text="Personalizar Ilha" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Grid>
+
+                    <!-- Bloco 1: Cor de Destaque (Accent) -->
+                    <StackPanel Grid.Row="1" Margin="0,0,0,8">
+                        <TextBlock Style="{StaticResource FluentTextSec}" Text="Cor de Destaque (Ativos e Sliders)" FontSize="10.5" Margin="0,0,0,4" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="65" />
+                                <ColumnDefinition Width="4" />
+                                <ColumnDefinition Width="32" />
+                            </Grid.ColumnDefinitions>
+                            
+                            <UniformGrid Grid.Column="0" Columns="5" Height="28">
+                                <Border Name="colorCoral" Background="#FFF6A733" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectColor_Click" Tag="#FFF6A733" />
+                                <Border Name="colorBlue" Background="#FF0078D4" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectColor_Click" Tag="#FF0078D4" />
+                                <Border Name="colorPurple" Background="#FF8660A9" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectColor_Click" Tag="#FF8660A9" />
+                                <Border Name="colorGreen" Background="#FF107C41" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectColor_Click" Tag="#FF107C41" />
+                                <Border Name="colorRed" Background="#FFE81123" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectColor_Click" Tag="#FFE81123" />
+                            </UniformGrid>
+                            
+                            <TextBox Grid.Column="2" Name="txtAccentHex" Style="{StaticResource HexTextBoxStyle}" Height="28" Text="#FFF6A733" GotFocus="TextBox_GotFocus" LostFocus="TextBox_LostFocus" />
+                            <Border Grid.Column="4" Style="{StaticResource TactileBorderButtonStyle}" Width="32" Height="28" CornerRadius="5" Background="{DynamicResource IslandInactiveBrush}" Cursor="Hand" MouseLeftButtonDown="ApplyAccentHex_Click">
+                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE73E;" FontSize="11" />
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Bloco 2: Fundo da Ilha -->
+                    <StackPanel Grid.Row="2" Margin="0,0,0,8">
+                        <TextBlock Style="{StaticResource FluentTextSec}" Text="Fundo da Ilha" FontSize="10.5" Margin="0,0,0,4" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="65" />
+                                <ColumnDefinition Width="4" />
+                                <ColumnDefinition Width="32" />
+                            </Grid.ColumnDefinitions>
+                            
+                            <UniformGrid Grid.Column="0" Columns="5" Height="28">
+                                <Border Name="bgBlack" Background="Black" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectBgColor_Click" Tag="#FF000000" />
+                                <Border Name="bgDarkGray" Background="#FF1A1A1A" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectBgColor_Click" Tag="#FF1A1A1A" />
+                                <Border Name="bgBlue" Background="#FF0D1B2A" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectBgColor_Click" Tag="#FF0D1B2A" />
+                                <Border Name="bgPurple" Background="#FF1E152A" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectBgColor_Click" Tag="#FF1E152A" />
+                                <Border Name="bgGreen" Background="#FF0A1C16" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectBgColor_Click" Tag="#FF0A1C16" />
+                            </UniformGrid>
+                            
+                            <TextBox Grid.Column="2" Name="txtBgHex" Style="{StaticResource HexTextBoxStyle}" Height="28" Text="#FF000000" GotFocus="TextBox_GotFocus" LostFocus="TextBox_LostFocus" />
+                            <Border Grid.Column="4" Style="{StaticResource TactileBorderButtonStyle}" Width="32" Height="28" CornerRadius="5" Background="{DynamicResource IslandInactiveBrush}" Cursor="Hand" MouseLeftButtonDown="ApplyBgHex_Click">
+                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE73E;" FontSize="11" />
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Bloco 3: Botões Inativos -->
+                    <StackPanel Grid.Row="3" Margin="0,0,0,5">
+                        <TextBlock Style="{StaticResource FluentTextSec}" Text="Botões Inativos" FontSize="10.5" Margin="0,0,0,4" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="65" />
+                                <ColumnDefinition Width="4" />
+                                <ColumnDefinition Width="32" />
+                            </Grid.ColumnDefinitions>
+                            
+                            <UniformGrid Grid.Column="0" Columns="5" Height="28">
+                                <Border Name="inactGray" Background="#FF1E1E20" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectInactColor_Click" Tag="#FF1E1E20" />
+                                <Border Name="inactDark" Background="#FF141416" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectInactColor_Click" Tag="#FF141416" />
+                                <Border Name="inactBlue" Background="#FF1B2A47" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectInactColor_Click" Tag="#FF1B2A47" />
+                                <Border Name="inactPurple" Background="#FF322348" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectInactColor_Click" Tag="#FF322348" />
+                                <Border Name="inactGreen" Background="#FF142D24" CornerRadius="5" Margin="2,0" Cursor="Hand" MouseLeftButtonDown="SelectInactColor_Click" Tag="#FF142D24" />
+                            </UniformGrid>
+                            
+                            <TextBox Grid.Column="2" Name="txtInactHex" Style="{StaticResource HexTextBoxStyle}" Height="28" Text="#FF1E1E20" GotFocus="TextBox_GotFocus" LostFocus="TextBox_LostFocus" />
+                            <Border Grid.Column="4" Style="{StaticResource TactileBorderButtonStyle}" Width="32" Height="28" CornerRadius="5" Background="{DynamicResource IslandInactiveBrush}" Cursor="Hand" MouseLeftButtonDown="ApplyInactHex_Click">
+                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE73E;" FontSize="11" />
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+
                 <Grid Name="expandedIslandPanel" Grid.Row="0" Visibility="Collapsed" Margin="0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
@@ -349,7 +484,7 @@
 
                     <!-- Row 1: Sliders de Brilho e Volume (Completamente Sem Bordas e Espaçamento de 5px) -->
                     <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,0,0,5">
-                        <Border Background="#FF1e1e20" BorderThickness="0" Padding="12,10" CornerRadius="12.5" Width="388" Height="84">
+                        <Border Background="{DynamicResource IslandInactiveBrush}" BorderThickness="0" Padding="12,10" CornerRadius="12.5" Width="388" Height="84">
                             <StackPanel>
                                 <!-- Slider: Brilho da Tela -->
                                 <Grid Margin="0,0,0,6" Height="28">
@@ -370,7 +505,7 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="38" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource FluentIcon}" Text="&#xE995;" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="0.8" />
+                                    <TextBlock Name="txtVolumeIcon" Grid.Column="0" Style="{StaticResource FluentIcon}" Text="&#xE995;" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="0.8" Cursor="Hand" MouseLeftButtonDown="MuteToggle_Click" />
                                     <Slider Style="{StaticResource ModernFluentSliderStyle}" Grid.Column="1" Name="volumeSlider" Minimum="0" Maximum="100" Value="50" VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged" />
                                     <TextBlock Grid.Column="2" Name="txtVolumeVal" Style="{StaticResource FluentText}" Text="50%" FontSize="11" FontWeight="Medium" HorizontalAlignment="Right" VerticalAlignment="Center" Opacity="0.6" />
                                 </Grid>
@@ -378,14 +513,21 @@
                         </Border>
                     </StackPanel>
 
-                    <!-- Row 2: Todas as Configurações (Rodapé Completamente Sem Bordas) -->
-                    <Grid Grid.Row="2">
-                        <Border CornerRadius="12.5" Width="388" Height="40" MouseLeftButtonDown="OpenSettings_Click" Cursor="Hand" Name="btnAllSettings" Margin="0,0,0,5">
+                    <!-- Row 2: Rodapé dividido em dois botões horizontais -->
+                    <Grid Grid.Row="2" Margin="0,0,0,5" Width="388" HorizontalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="6" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Botão 1: Configurações do PC -->
+                        <Border Grid.Column="0" CornerRadius="12.5" Height="40" MouseLeftButtonDown="OpenSettings_Click" Cursor="Hand" Name="btnAllSettings">
                             <Border.Style>
                                 <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
-                                    <Setter Property="Background" Value="#FF1e1e20" />
-                                    <Setter Property="BorderThickness" Value="0" /> <!-- Removido a borda cinza -->
-                                    <Setter Property="Padding" Value="12,11" />
+                                    <Setter Property="Background" Value="{DynamicResource IslandInactiveBrush}" />
+                                    <Setter Property="BorderThickness" Value="0" />
+                                    <Setter Property="Padding" Value="10,11" />
                                     <Style.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
                                             <Setter Property="Background" Value="#FF444444" />
@@ -393,29 +535,29 @@
                                     </Style.Triggers>
                                 </Style>
                             </Border.Style>
-                            <Border.Triggers>
-                                <EventTrigger RoutedEvent="Mouse.MouseEnter">
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="chevronTranslate" Storyboard.TargetProperty="X" To="3.0" Duration="0:0:0.15" DecelerationRatio="0.8" />
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </EventTrigger>
-                                <EventTrigger RoutedEvent="Mouse.MouseLeave">
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="chevronTranslate" Storyboard.TargetProperty="X" To="0.0" Duration="0:0:0.2" DecelerationRatio="0.8" />
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </EventTrigger>
-                            </Border.Triggers>
                             <Grid>
-                                <TextBlock Style="{StaticResource FluentText}" FontSize="12" FontWeight="SemiBold" Text="Todas as Configurações" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                                <TextBlock Name="txtChevron" Style="{StaticResource FluentIcon}" Text="&#xE00F;" FontSize="14" HorizontalAlignment="Right" VerticalAlignment="Center" Opacity="0.7">
-                                    <TextBlock.RenderTransform>
-                                        <TranslateTransform x:Name="chevronTranslate" X="0" />
-                                    </TextBlock.RenderTransform>
-                                </TextBlock>
+                                <TextBlock Style="{StaticResource FluentText}" FontSize="11" FontWeight="SemiBold" Text="Configurações do PC" HorizontalAlignment="Left" VerticalAlignment="Center" />
+                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE713;" FontSize="13" HorizontalAlignment="Right" VerticalAlignment="Center" Opacity="0.7" />
+                            </Grid>
+                        </Border>
+
+                        <!-- Botão 2: Aparência da Ilha -->
+                        <Border Grid.Column="2" CornerRadius="12.5" Height="40" MouseLeftButtonDown="AppearanceSettings_Click" Cursor="Hand" Name="btnAppearanceSettings">
+                            <Border.Style>
+                                <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
+                                    <Setter Property="Background" Value="{DynamicResource IslandInactiveBrush}" />
+                                    <Setter Property="BorderThickness" Value="0" />
+                                    <Setter Property="Padding" Value="10,11" />
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="#FF444444" />
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Grid>
+                                <TextBlock Style="{StaticResource FluentText}" FontSize="11" FontWeight="SemiBold" Text="Aparência da Ilha" HorizontalAlignment="Left" VerticalAlignment="Center" />
+                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE790;" FontSize="13" HorizontalAlignment="Right" VerticalAlignment="Center" Opacity="0.7" />
                             </Grid>
                         </Border>
                     </Grid>
@@ -446,8 +588,8 @@
                     <Border Grid.Row="1" CornerRadius="14" Padding="12" MouseLeftButtonDown="ExcelAction_Click" Cursor="Hand" Margin="0,0,0,5">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
-                                <Setter Property="Background" Value="#FF1e1e20" />
-                                <Setter Property="BorderThickness" Value="0" /> <!-- Removido a borda cinza -->
+                                <Setter Property="Background" Value="{DynamicResource IslandInactiveBrush}" />
+                                <Setter Property="BorderThickness" Value="0" />
                                 <Style.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
                                         <Setter Property="Background" Value="#FF444444" />
@@ -460,7 +602,7 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Width="36" Height="36" CornerRadius="12" Background="#40F6A733" Margin="0,0,10,0">
+                            <Border Grid.Column="0" Width="36" Height="36" CornerRadius="12" Background="{DynamicResource ThemeAccentBrush}" Margin="0,0,10,0">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE90C;" FontSize="18" Foreground="#F6A733" />
                             </Border>
                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -474,8 +616,8 @@
                     <Border Grid.Row="2" CornerRadius="6" Padding="8" MouseLeftButtonDown="CancelDrop_Click" Cursor="Hand">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
-                                <Setter Property="Background" Value="#FF1e1e20" />
-                                <Setter Property="BorderThickness" Value="0" /> <!-- Removido a borda cinza -->
+                                <Setter Property="Background" Value="{DynamicResource IslandInactiveBrush}" />
+                                <Setter Property="BorderThickness" Value="0" />
                                 <Style.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
                                         <Setter Property="Background" Value="#FF444444" />
@@ -494,7 +636,7 @@
                   ══ Row 1: Separador Horizontal Discreto ═════════════════════════════
                 -->
                 <Border Grid.Row="1" Name="islandSeparator" Visibility="Collapsed"
-                        Height="1" Background="#14FFFFFF" Margin="0,0,0,5" />
+                        Height="1" Background="#FF3A3A3C" Margin="0,0,0,5" />
 
                 <!-- 
                   ══ Row 2: Pílula Compacta (Base Central) ════════════════════════════
@@ -511,7 +653,7 @@
                     </Grid.ColumnDefinitions>
 
                     <Grid Grid.Column="0" Width="30" Height="30" Margin="0,0,8,0" VerticalAlignment="Center">
-                        <Border Name="miniThumbBorder" Width="30" Height="30" CornerRadius="8" ClipToBounds="True" Background="#2AFFFFFF" VerticalAlignment="Center" Visibility="Collapsed" />
+                        <Border Name="miniThumbBorder" Width="30" Height="30" CornerRadius="8" ClipToBounds="True" Background="#FF3A3A3C" VerticalAlignment="Center" Visibility="Collapsed" />
                         <TextBlock Name="txtMiniIcon" Style="{StaticResource FluentIcon}" FontSize="16" Text="&#xE990;" Foreground="#4CC2FF" VerticalAlignment="Center" />
                     </Grid>
 

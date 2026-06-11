@@ -74,12 +74,13 @@ namespace DynamicIslandWindows
         private const int  HOVER_TICKS_TO_OPEN  = 4;
         private const int  HOVER_TICKS_TO_CLOSE = 3;
         private const int  HOVER_TIMER_MS        = 100;
-        private const int  MEDIA_TIMER_S         = 2;
+        private const int  MEDIA_TIMER_S         = 10;
         private const int  DRAGLEAVE_DELAY_MS    = 150;
 
         // Dimensões físicas lógicas finais do widget (sincronizadas e sem saltos)
         private const double ISLAND_OPEN_W       = 410;
         private const double ISLAND_OPEN_H       = 374;
+        private const double ISLAND_APPEARANCE_H = 265;
         private const double DROPZONE_W          = 320;
         private const double DROPZONE_H          = 200;
 
@@ -104,6 +105,21 @@ namespace DynamicIslandWindows
         private const int TOPMOST_REFRESH_TICKS = 10;
         private int _fullScreenCheckCounter = 0;
         private bool _isFullScreenCached = false;
+
+        // Throttling de Brilho, Mute e Configuração
+        private DateTime _lastBrightnessTime = DateTime.MinValue;
+        private int _pendingBrightnessValue = -1;
+        private bool _brightnessUpdatePending = false;
+        private readonly object _brightnessLock = new();
+        private IslandConfig _config = new IslandConfig();
+        private Color _themeColor = Color.FromRgb(0xF6, 0xA7, 0x33);
+
+        public class IslandConfig
+        {
+            public string ThemeColor { get; set; } = "#FFF6A733";
+            public string BackgroundColor { get; set; } = "#FF000000";
+            public string InactiveColor { get; set; } = "#FF1E1E20";
+        }
 
         // Estados dos Toggles
         private bool _wifiOn = true;
@@ -162,6 +178,9 @@ namespace DynamicIslandWindows
             islandBorder.Width = startingWidth;
             islandBorder.Height = _miniBaseHeightLogica;
 
+            // Carrega e aplica a configuração de cores
+            LoadConfig();
+
             // Sincronizar Hardware
             try
             {
@@ -172,6 +191,7 @@ namespace DynamicIslandWindows
                 volumeSlider.Value = vol;
                 txtBrightnessVal.Text = $"{bri}%";
                 txtVolumeVal.Text = $"{vol}%";
+                UpdateMuteUI();
             }
             catch (Exception ex)
             {
@@ -203,6 +223,11 @@ namespace DynamicIslandWindows
             UpdateToggleButton(btnNearbyShare, icoNearbyShare, _nearbyShareOn);
             UpdateToggleButton(btnCast, icoCast, _castOn);
             UpdateToggleButton(btnProject, icoProject, _projectOn);
+
+            if (btnFilePicker != null && icoFilePicker != null)
+            {
+                UpdateToggleButton(btnFilePicker, icoFilePicker, false);
+            }
         }
 
         private void CacheDpi()
@@ -345,6 +370,7 @@ namespace DynamicIslandWindows
             if (txtMiniSubtitle != null) txtMiniSubtitle.MaxWidth = 220;
 
             expandedIslandPanel.Visibility = Visibility.Collapsed;
+            appearancePanel.Visibility = Visibility.Collapsed;
             islandSeparator.Visibility = Visibility.Collapsed;
             dropZonePanel.Visibility = Visibility.Collapsed;
             miniIslandPanel.Visibility = Visibility.Visible;
@@ -388,7 +414,7 @@ namespace DynamicIslandWindows
                 {
                     Color = Color.FromRgb(0x4C, 0xC2, 0xFF),
                     ShadowDepth = 0,
-                    Opacity = 0.6,
+                    Opacity = 1.0,
                     BlurRadius = 25
                 };
                 islandBorder.Effect = dropShadow;
@@ -396,9 +422,6 @@ namespace DynamicIslandWindows
 
                 DoubleAnimation blurAnim = new DoubleAnimation(15, 35, new Duration(TimeSpan.FromSeconds(1.5))) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever };
                 dropShadow.BeginAnimation(DropShadowEffect.BlurRadiusProperty, blurAnim);
-
-                DoubleAnimation opacityAnim = new DoubleAnimation(0.3, 0.8, new Duration(TimeSpan.FromSeconds(1.5))) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever };
-                dropShadow.BeginAnimation(DropShadowEffect.OpacityProperty, opacityAnim);
             }
 
             AnimateBorder(DROPZONE_W, DROPZONE_H);
@@ -410,7 +433,40 @@ namespace DynamicIslandWindows
             if (_hardwareService == null || txtBrightnessVal == null) return;
             int val = (int)e.NewValue;
             txtBrightnessVal.Text = $"{val}%";
-            _hardwareService.SetBrightness(val);
+            SetBrightnessThrottled(val);
+        }
+
+        private void SetBrightnessThrottled(int value)
+        {
+            lock (_brightnessLock)
+            {
+                _pendingBrightnessValue = value;
+                if (_brightnessUpdatePending) return;
+
+                var elapsed = DateTime.UtcNow - _lastBrightnessTime;
+                if (elapsed.TotalMilliseconds >= 150)
+                {
+                    ExecuteBrightnessUpdate();
+                }
+                else
+                {
+                    _brightnessUpdatePending = true;
+                    int delay = 150 - (int)elapsed.TotalMilliseconds;
+                    Task.Delay(delay).ContinueWith(t => ExecuteBrightnessUpdate());
+                }
+            }
+        }
+
+        private void ExecuteBrightnessUpdate()
+        {
+            int value;
+            lock (_brightnessLock)
+            {
+                value = _pendingBrightnessValue;
+                _brightnessUpdatePending = false;
+                _lastBrightnessTime = DateTime.UtcNow;
+            }
+            _hardwareService.SetBrightness(value);
         }
 
         private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -419,6 +475,7 @@ namespace DynamicIslandWindows
             int val = (int)e.NewValue;
             txtVolumeVal.Text = $"{val}%";
             _hardwareService.SetVolume(val);
+            UpdateMuteUI(); // Sincroniza o ícone (desmuta ao deslizar se necessário)
         }
 
         // ─── Toggles Click ────────────────────────────────────────────────────────
@@ -471,14 +528,18 @@ namespace DynamicIslandWindows
         {
             if (isOn)
             {
-                border.Background = new SolidColorBrush(Color.FromArgb(0x33, 0xF6, 0xA7, 0x33));
-                border.BorderBrush = new SolidColorBrush(Color.FromArgb(0x66, 0xF6, 0xA7, 0x33));
-                icon.Foreground = new SolidColorBrush(Color.FromRgb(0xF6, 0xA7, 0x33));
+                border.Background = new SolidColorBrush(_themeColor);
+                border.BorderBrush = new SolidColorBrush(_themeColor);
+                
+                // Escolhe ícone preto ou branco dependendo do contraste da cor do tema
+                double brightness = (0.299 * _themeColor.R + 0.587 * _themeColor.G + 0.114 * _themeColor.B) / 255;
+                icon.Foreground = brightness > 0.6 ? Brushes.Black : Brushes.White;
             }
             else
             {
-                border.Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x20));
-                border.BorderBrush = new SolidColorBrush(Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF));
+                var brush = this.Resources["IslandInactiveBrush"] as Brush;
+                border.Background = brush ?? new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x20));
+                border.BorderBrush = Brushes.Transparent;
                 icon.Foreground = Brushes.White;
             }
         }
@@ -630,10 +691,10 @@ namespace DynamicIslandWindows
                     else
                     {
                         miniMediaControls.Visibility = Visibility.Collapsed;
-                        txtMiniTitle.Text = "Dynamic Island";
-                        txtMiniSubtitle.Text = "Notificações ativas";
+                        txtMiniTitle.Text = state.Title;
+                        txtMiniSubtitle.Text = state.Subtitle;
 
-                        miniThumbBorder.Background = new SolidColorBrush(Color.FromArgb(0x2A, 0xFF, 0xFF, 0xFF));
+                        miniThumbBorder.Background = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3C));
                         miniThumbBorder.Visibility = Visibility.Collapsed;
                         txtMiniIcon.Visibility = Visibility.Visible;
                         txtMiniIcon.Text = "\uE990"; 
@@ -652,7 +713,7 @@ namespace DynamicIslandWindows
 
         private void UseDefaultMediaIcon()
         {
-            miniThumbBorder.Background = new SolidColorBrush(Color.FromArgb(0x2A, 0xFF, 0xFF, 0xFF));
+            miniThumbBorder.Background = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3C));
             miniThumbBorder.Visibility = Visibility.Collapsed;
             txtMiniIcon.Visibility = Visibility.Visible;
             txtMiniIcon.Text = "\uE958";
@@ -744,6 +805,292 @@ namespace DynamicIslandWindows
             catch { return false; }
         }
 
+        // ─── LÓGICA DE MUDO E APARÊNCIA DINÂMICA ──────────────────────────────
+        private void MuteToggle_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (_hardwareService == null) return;
+            e.Handled = true;
+            _hardwareService.ToggleMute();
+            UpdateMuteUI();
+        }
+
+        private void UpdateMuteUI()
+        {
+            if (_hardwareService == null || txtVolumeIcon == null) return;
+            bool isMuted = _hardwareService.IsMuted();
+            txtVolumeIcon.Text = isMuted ? "\uE74F" : "\uE995";
+            txtVolumeIcon.Opacity = isMuted ? 0.4 : 0.8;
+        }
+
+        private void AppearanceSettings_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            expandedIslandPanel.Visibility = Visibility.Collapsed;
+            appearancePanel.Visibility = Visibility.Visible;
+            AnimateBorder(ISLAND_OPEN_W, ISLAND_APPEARANCE_H);
+        }
+
+        private void BackToMainPanel_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            appearancePanel.Visibility = Visibility.Collapsed;
+            expandedIslandPanel.Visibility = Visibility.Visible;
+            AnimateBorder(ISLAND_OPEN_W, ISLAND_OPEN_H);
+        }
+
+        private void SelectColor_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is Border border)
+            {
+                e.Handled = true;
+                string hexColor = border.Tag?.ToString() ?? "#FFF6A733";
+                ApplyThemeColor(hexColor);
+                SaveConfig();
+            }
+        }
+
+        private void SelectBgColor_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is Border border)
+            {
+                e.Handled = true;
+                string hexColor = border.Tag?.ToString() ?? "#FF000000";
+                ApplyBgColor(hexColor);
+                SaveConfig();
+            }
+        }
+
+        private void SelectInactColor_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is Border border)
+            {
+                e.Handled = true;
+                string hexColor = border.Tag?.ToString() ?? "#FF1E1E20";
+                ApplyInactiveColor(hexColor);
+                SaveConfig();
+            }
+        }
+
+        private void ApplyAccentHex_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            string hex = txtAccentHex.Text.Trim();
+            if (IsValidHexColor(hex))
+            {
+                ApplyThemeColor(hex);
+                SaveConfig();
+            }
+            else
+            {
+                MessageBox.Show("Código hexadecimal de cor inválido. Ex: #FFF6A733", "Erro de Cor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void ApplyBgHex_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            string hex = txtBgHex.Text.Trim();
+            if (IsValidHexColor(hex))
+            {
+                ApplyBgColor(hex);
+                SaveConfig();
+            }
+            else
+            {
+                MessageBox.Show("Código hexadecimal de cor inválido. Ex: #FF000000", "Erro de Cor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void ApplyInactHex_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            string hex = txtInactHex.Text.Trim();
+            if (IsValidHexColor(hex))
+            {
+                ApplyInactiveColor(hex);
+                SaveConfig();
+            }
+            else
+            {
+                MessageBox.Show("Código hexadecimal de cor inválido. Ex: #FF1E1E20", "Erro de Cor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private bool IsValidHexColor(string hex)
+        {
+            if (string.IsNullOrEmpty(hex)) return false;
+            if (hex[0] != '#') return false;
+            return hex.Length == 7 || hex.Length == 9;
+        }
+
+        private void LoadConfig()
+        {
+            try
+            {
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "island_config.json");
+                if (File.Exists(path))
+                {
+                    string json = File.ReadAllText(path);
+                    var cfg = JsonSerializer.Deserialize<IslandConfig>(json);
+                    if (cfg != null)
+                    {
+                        _config = cfg;
+                        ApplyThemeColor(_config.ThemeColor);
+                        ApplyBgColor(_config.BackgroundColor);
+                        ApplyInactiveColor(_config.InactiveColor);
+                        return;
+                    }
+                }
+                ApplyThemeColor("#FFF6A733");
+                ApplyBgColor("#FF000000");
+                ApplyInactiveColor("#FF1E1E20");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[LoadConfig] {ex.Message}");
+                ApplyThemeColor("#FFF6A733");
+                ApplyBgColor("#FF000000");
+                ApplyInactiveColor("#FF1E1E20");
+            }
+        }
+
+        private void SaveConfig()
+        {
+            try
+            {
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "island_config.json");
+                string json = JsonSerializer.Serialize(_config);
+                File.WriteAllText(path, json);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SaveConfig] {ex.Message}");
+            }
+        }
+
+        private void ApplyThemeColor(string hexColor)
+        {
+            try
+            {
+                _config.ThemeColor = hexColor;
+                var colorObj = ColorConverter.ConvertFromString(hexColor);
+                if (colorObj != null)
+                {
+                    _themeColor = (Color)colorObj;
+                    this.Resources["ThemeAccentBrush"] = new SolidColorBrush(_themeColor);
+                    
+                    var trackColor = Color.FromRgb(_themeColor.R, _themeColor.G, _themeColor.B);
+                    this.Resources["ThemeAccentTrackBrush"] = new SolidColorBrush(trackColor);
+
+                    txtAccentHex.Text = hexColor;
+                    UpdateColorSelectionUI(hexColor);
+                    InitializeTogglesUI();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ApplyThemeColor] {ex.Message}");
+            }
+        }
+
+        private void ApplyBgColor(string hexColor)
+        {
+            try
+            {
+                _config.BackgroundColor = hexColor;
+                var colorObj = ColorConverter.ConvertFromString(hexColor);
+                if (colorObj != null)
+                {
+                    var color = (Color)colorObj;
+                    this.Resources["IslandBackgroundBrush"] = new SolidColorBrush(color);
+                    txtBgHex.Text = hexColor;
+                    UpdateBgSelectionUI(hexColor);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ApplyBgColor] {ex.Message}");
+            }
+        }
+
+        private void ApplyInactiveColor(string hexColor)
+        {
+            try
+            {
+                _config.InactiveColor = hexColor;
+                var colorObj = ColorConverter.ConvertFromString(hexColor);
+                if (colorObj != null)
+                {
+                    var color = (Color)colorObj;
+                    this.Resources["IslandInactiveBrush"] = new SolidColorBrush(color);
+                    txtInactHex.Text = hexColor;
+                    UpdateInactSelectionUI(hexColor);
+                    InitializeTogglesUI();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ApplyInactiveColor] {ex.Message}");
+            }
+        }
+
+        private void UpdateColorSelectionUI(string hexColor)
+        {
+            if (colorCoral == null) return;
+            colorCoral.BorderThickness = new Thickness(0);
+            colorBlue.BorderThickness = new Thickness(0);
+            colorPurple.BorderThickness = new Thickness(0);
+            colorGreen.BorderThickness = new Thickness(0);
+            colorRed.BorderThickness = new Thickness(0);
+
+            var selectedBrush = Brushes.White;
+            var thick = new Thickness(2);
+
+            if (hexColor.Equals("#FFF6A733", StringComparison.OrdinalIgnoreCase)) { colorCoral.BorderBrush = selectedBrush; colorCoral.BorderThickness = thick; }
+            else if (hexColor.Equals("#FF0078D4", StringComparison.OrdinalIgnoreCase)) { colorBlue.BorderBrush = selectedBrush; colorBlue.BorderThickness = thick; }
+            else if (hexColor.Equals("#FF8660A9", StringComparison.OrdinalIgnoreCase)) { colorPurple.BorderBrush = selectedBrush; colorPurple.BorderThickness = thick; }
+            else if (hexColor.Equals("#FF107C41", StringComparison.OrdinalIgnoreCase)) { colorGreen.BorderBrush = selectedBrush; colorGreen.BorderThickness = thick; }
+            else if (hexColor.Equals("#FFE81123", StringComparison.OrdinalIgnoreCase)) { colorRed.BorderBrush = selectedBrush; colorRed.BorderThickness = thick; }
+        }
+
+        private void UpdateBgSelectionUI(string hexColor)
+        {
+            if (bgBlack == null) return;
+            bgBlack.BorderThickness = new Thickness(0);
+            bgDarkGray.BorderThickness = new Thickness(0);
+            bgBlue.BorderThickness = new Thickness(0);
+            bgPurple.BorderThickness = new Thickness(0);
+            bgGreen.BorderThickness = new Thickness(0);
+
+            var selectedBrush = Brushes.White;
+            var thick = new Thickness(2);
+
+            if (hexColor.Equals("#FF000000", StringComparison.OrdinalIgnoreCase)) { bgBlack.BorderBrush = selectedBrush; bgBlack.BorderThickness = thick; }
+            else if (hexColor.Equals("#FF1A1A1A", StringComparison.OrdinalIgnoreCase)) { bgDarkGray.BorderBrush = selectedBrush; bgDarkGray.BorderThickness = thick; }
+            else if (hexColor.Equals("#FF0D1B2A", StringComparison.OrdinalIgnoreCase)) { bgBlue.BorderBrush = selectedBrush; bgBlue.BorderThickness = thick; }
+            else if (hexColor.Equals("#FF1E152A", StringComparison.OrdinalIgnoreCase)) { bgPurple.BorderBrush = selectedBrush; bgPurple.BorderThickness = thick; }
+            else if (hexColor.Equals("#FF0A1C16", StringComparison.OrdinalIgnoreCase)) { bgGreen.BorderBrush = selectedBrush; bgGreen.BorderThickness = thick; }
+        }
+
+        private void UpdateInactSelectionUI(string hexColor)
+        {
+            if (inactGray == null) return;
+            inactGray.BorderThickness = new Thickness(0);
+            inactDark.BorderThickness = new Thickness(0);
+            inactBlue.BorderThickness = new Thickness(0);
+            inactPurple.BorderThickness = new Thickness(0);
+            inactGreen.BorderThickness = new Thickness(0);
+
+            var selectedBrush = Brushes.White;
+            var thick = new Thickness(2);
+
+            if (hexColor.Equals("#FF1E1E20", StringComparison.OrdinalIgnoreCase)) { inactGray.BorderBrush = selectedBrush; inactGray.BorderThickness = thick; }
+            else if (hexColor.Equals("#FF141416", StringComparison.OrdinalIgnoreCase)) { inactDark.BorderBrush = selectedBrush; inactDark.BorderThickness = thick; }
+            else if (hexColor.Equals("#FF1B2A47", StringComparison.OrdinalIgnoreCase)) { inactBlue.BorderBrush = selectedBrush; inactBlue.BorderThickness = thick; }
+            else if (hexColor.Equals("#FF322348", StringComparison.OrdinalIgnoreCase)) { inactPurple.BorderBrush = selectedBrush; inactPurple.BorderThickness = thick; }
+            else if (hexColor.Equals("#FF142D24", StringComparison.OrdinalIgnoreCase)) { inactGreen.BorderBrush = selectedBrush; inactGreen.BorderThickness = thick; }
+        }
+
         public void Dispose()
         {
             if (_disposed) return; _disposed = true;
@@ -770,5 +1117,40 @@ namespace DynamicIslandWindows
         }
 
         protected override void OnClosed(EventArgs e) { Dispose(); base.OnClosed(e); }
+
+        private void TextBox_GotFocus(object sender, RoutedEventArgs e)
+        {
+            if (_hwnd != IntPtr.Zero)
+            {
+                try
+                {
+                    int exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
+                    exStyle &= ~WS_EX_NOACTIVATE;
+                    SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle);
+                    this.Activate();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[GotFocus] {ex.Message}");
+                }
+            }
+        }
+
+        private void TextBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (_hwnd != IntPtr.Zero)
+            {
+                try
+                {
+                    int exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
+                    exStyle |= WS_EX_NOACTIVATE;
+                    SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[LostFocus] {ex.Message}");
+                }
+            }
+        }
     }
 }

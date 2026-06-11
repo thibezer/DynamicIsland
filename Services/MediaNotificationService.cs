@@ -23,8 +23,40 @@ namespace DynamicIslandWindows.Services
         private bool _listenerSetup = false;
         private bool _disposed = false;
 
+        private GlobalSystemMediaTransportControlsSessionManager? _sessionManager;
+        private GlobalSystemMediaTransportControlsSession? _currentSession;
+
+        // Cache de metadados e imagem de música
+        private string _cachedMusicTitle = string.Empty;
+        private string _cachedMusicArtist = string.Empty;
+        private string _cachedMusicThumbnailBase64 = string.Empty;
+        private bool _cachedMusicIsPlaying = false;
+
+        // Cache de metadados e ícone de notificações
+        private string _cachedNotifTitle = string.Empty;
+        private string _cachedNotifContent = string.Empty;
+        private string _cachedNotifAppId = string.Empty;
+        private string _cachedNotifAppIconBase64 = string.Empty;
+
         public async Task InitializeAsync()
         {
+            try
+            {
+                if (_sessionManager == null)
+                {
+                    _sessionManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
+                    if (_sessionManager != null)
+                    {
+                        _sessionManager.CurrentSessionChanged += OnCurrentSessionChanged;
+                        UpdateCurrentSession();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MediaManagerInit] {ex.Message}");
+            }
+
             if (_listenerSetup) return;
             try
             {
@@ -42,6 +74,51 @@ namespace DynamicIslandWindows.Services
             }
         }
 
+        private void OnCurrentSessionChanged(GlobalSystemMediaTransportControlsSessionManager sender, CurrentSessionChangedEventArgs args)
+        {
+            UpdateCurrentSession();
+            StateChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void UpdateCurrentSession()
+        {
+            if (_sessionManager == null) return;
+
+            // Desinscrever da sessão anterior
+            if (_currentSession != null)
+            {
+                try
+                {
+                    _currentSession.PlaybackInfoChanged -= OnSessionPlaybackInfoChanged;
+                    _currentSession.MediaPropertiesChanged -= OnSessionMediaPropertiesChanged;
+                }
+                catch { }
+            }
+
+            _currentSession = _sessionManager.GetCurrentSession();
+
+            // Inscrever na nova sessão
+            if (_currentSession != null)
+            {
+                try
+                {
+                    _currentSession.PlaybackInfoChanged += OnSessionPlaybackInfoChanged;
+                    _currentSession.MediaPropertiesChanged += OnSessionMediaPropertiesChanged;
+                }
+                catch { }
+            }
+        }
+
+        private void OnSessionPlaybackInfoChanged(GlobalSystemMediaTransportControlsSession sender, PlaybackInfoChangedEventArgs args)
+        {
+            StateChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void OnSessionMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, MediaPropertiesChangedEventArgs args)
+        {
+            StateChanged?.Invoke(this, EventArgs.Empty);
+        }
+
         private void OnNotificationChanged(UserNotificationListener sender, UserNotificationChangedEventArgs args)
         {
             StateChanged?.Invoke(this, EventArgs.Empty);
@@ -52,67 +129,95 @@ namespace DynamicIslandWindows.Services
             var state = new MediaNotificationState();
             try
             {
-                var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
-                var session = manager.GetCurrentSession();
+                if (_sessionManager == null)
+                {
+                    _sessionManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
+                    if (_sessionManager != null)
+                    {
+                        _sessionManager.CurrentSessionChanged += OnCurrentSessionChanged;
+                        UpdateCurrentSession();
+                    }
+                }
 
+                var session = _currentSession;
                 if (session != null)
                 {
-                    var info = await session.TryGetMediaPropertiesAsync();
-                    state.Title = string.IsNullOrEmpty(info.Title) ? "Nenhuma música" : info.Title;
-                    state.Subtitle = string.IsNullOrEmpty(info.Artist) ? "Nenhum artista" : info.Artist;
-                    state.Thumbnail = string.Empty;
-
+                    GlobalSystemMediaTransportControlsSessionPlaybackStatus playbackStatus = GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed;
                     try
                     {
                         var playbackInfo = session.GetPlaybackInfo();
-                        state.IsPlaying = playbackInfo?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                        playbackStatus = playbackInfo?.PlaybackStatus ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed;
                     }
-                    catch { state.IsPlaying = false; }
+                    catch { }
 
-                    if (info.Thumbnail != null)
-                    {
-                        try
-                        {
-                            // BLINDAGEM: Usando 'using' nas três camadas de stream nativo para evitar vazamento
-                            using var stream = await info.Thumbnail.OpenReadAsync();
-                            if (stream.Size > 0)
-                            {
-                                using var inputStream = stream.GetInputStreamAt(0);
-                                using var reader = new Windows.Storage.Streams.DataReader(inputStream);
-                                await reader.LoadAsync((uint)stream.Size);
-                                byte[] bytes = new byte[stream.Size];
-                                reader.ReadBytes(bytes);
-                                state.Thumbnail = Convert.ToBase64String(bytes);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"[Thumbnail] {ex.Message}");
-                        }
-                    }
-
-                    var playbackStatus = session.GetPlaybackInfo()?.PlaybackStatus;
                     if (playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Stopped ||
                         playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed)
                     {
                         state.Mode = "notification";
-                        var (notifTitle, notifContent) = await GetLatestNotificationAsync();
+                        var (notifTitle, notifContent, appIcon) = await GetLatestNotificationAsync();
                         state.Title = notifTitle;
                         state.Subtitle = notifContent;
-                        state.Thumbnail = string.Empty;
+                        state.Thumbnail = appIcon;
                     }
                     else
                     {
                         state.Mode = "music";
+                        state.IsPlaying = playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+
+                        var info = await session.TryGetMediaPropertiesAsync();
+                        var title = string.IsNullOrEmpty(info.Title) ? "Nenhuma música" : info.Title;
+                        var artist = string.IsNullOrEmpty(info.Artist) ? "Nenhum artista" : info.Artist;
+
+                        state.Title = title;
+                        state.Subtitle = artist;
+
+                        if (title == _cachedMusicTitle && artist == _cachedMusicArtist)
+                        {
+                            // A música é a mesma, logo o thumbnail é idêntico e o pegamos do cache instantaneamente
+                            state.Thumbnail = _cachedMusicThumbnailBase64;
+                        }
+                        else
+                        {
+                            // Nova música! Carrega o thumbnail
+                            state.Thumbnail = string.Empty;
+
+                            if (info.Thumbnail != null)
+                            {
+                                try
+                                {
+                                    using var stream = await info.Thumbnail.OpenReadAsync();
+                                    if (stream.Size > 0)
+                                    {
+                                        using var inputStream = stream.GetInputStreamAt(0);
+                                        using var reader = new Windows.Storage.Streams.DataReader(inputStream);
+                                        await reader.LoadAsync((uint)stream.Size);
+                                        byte[] bytes = new byte[stream.Size];
+                                        reader.ReadBytes(bytes);
+                                        state.Thumbnail = Convert.ToBase64String(bytes);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine($"[Thumbnail] {ex.Message}");
+                                }
+                            }
+
+                            _cachedMusicThumbnailBase64 = state.Thumbnail;
+                        }
+
+                        // Atualiza o cache geral da música (incluindo estado de execução)
+                        _cachedMusicTitle = title;
+                        _cachedMusicArtist = artist;
+                        _cachedMusicIsPlaying = state.IsPlaying;
                     }
                 }
                 else
                 {
                     state.Mode = "notification";
-                    var (notifTitle, notifContent) = await GetLatestNotificationAsync();
+                    var (notifTitle, notifContent, appIcon) = await GetLatestNotificationAsync();
                     state.Title = notifTitle;
                     state.Subtitle = notifContent;
-                    state.Thumbnail = string.Empty;
+                    state.Thumbnail = appIcon;
                 }
             }
             catch (Exception ex)
@@ -125,7 +230,7 @@ namespace DynamicIslandWindows.Services
             return state;
         }
 
-        private async Task<(string title, string content)> GetLatestNotificationAsync()
+        private async Task<(string title, string content, string appIcon)> GetLatestNotificationAsync()
         {
             const string defaultTitle   = "Sem notificações";
             const string defaultContent = "Tudo limpo por aqui";
@@ -134,27 +239,90 @@ namespace DynamicIslandWindows.Services
                 var listener     = UserNotificationListener.Current;
                 var accessStatus = await listener.RequestAccessAsync();
                 if (accessStatus != UserNotificationListenerAccessStatus.Allowed)
-                    return (defaultTitle, defaultContent);
+                    return (defaultTitle, defaultContent, string.Empty);
 
                 var notifications = await listener.GetNotificationsAsync(NotificationKinds.Toast);
                 int count = notifications.Count;
-                if (count == 0) return (defaultTitle, defaultContent);
+                if (count == 0) return (defaultTitle, defaultContent, string.Empty);
 
                 var last     = notifications[count - 1];
                 var bindings = last.Notification.Visual.Bindings;
-                if (bindings.Count == 0) return (defaultTitle, defaultContent);
+                if (bindings.Count == 0) return (defaultTitle, defaultContent, string.Empty);
 
                 var elems = bindings[0].GetTextElements();
                 int ec    = elems.Count;
 
-                string title   = ec >= 2 ? elems[1].Text : (ec >= 1 ? elems[0].Text : defaultTitle);
-                string content = ec >= 3 ? elems[2].Text : (ec >= 2 ? elems[1].Text : defaultContent);
-                return (title, content);
+                string title = defaultTitle;
+                string content = defaultContent;
+
+                if (ec >= 3)
+                {
+                    title = elems[1].Text;
+                    content = elems[2].Text;
+                }
+                else if (ec == 2)
+                {
+                    title = elems[0].Text;
+                    content = elems[1].Text;
+                }
+                else if (ec == 1)
+                {
+                    title = elems[0].Text;
+                }
+
+                string appName = last.AppInfo.AppUserModelId ?? string.Empty;
+
+                // Se título, conteúdo e aplicativo forem idênticos ao cache, retornamos o cache
+                if (title == _cachedNotifTitle && content == _cachedNotifContent && appName == _cachedNotifAppId)
+                {
+                    return (_cachedNotifTitle, _cachedNotifContent, _cachedNotifAppIconBase64);
+                }
+
+                string appIcon = string.Empty;
+
+                // Se o aplicativo mudou ou não temos o ícone dele no cache, carregamos
+                if (appName != _cachedNotifAppId || string.IsNullOrEmpty(_cachedNotifAppIconBase64))
+                {
+                    try
+                    {
+                        var logoStreamRef = last.AppInfo.DisplayInfo.GetLogo(new Windows.Foundation.Size(30, 30));
+                        if (logoStreamRef != null)
+                        {
+                            using var stream = await logoStreamRef.OpenReadAsync();
+                            if (stream.Size > 0)
+                            {
+                                using var inputStream = stream.GetInputStreamAt(0);
+                                using var reader = new Windows.Storage.Streams.DataReader(inputStream);
+                                await reader.LoadAsync((uint)stream.Size);
+                                byte[] bytes = new byte[stream.Size];
+                                reader.ReadBytes(bytes);
+                                appIcon = Convert.ToBase64String(bytes);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[AppLogo] {ex.Message}");
+                    }
+                }
+                else
+                {
+                    // Se o app for o mesmo, reaproveita o ícone cacheado
+                    appIcon = _cachedNotifAppIconBase64;
+                }
+
+                // Atualiza o cache de notificações
+                _cachedNotifTitle = title;
+                _cachedNotifContent = content;
+                _cachedNotifAppId = appName;
+                _cachedNotifAppIconBase64 = appIcon;
+
+                return (title, content, appIcon);
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[Notifications] {ex.Message}");
-                return (defaultTitle, defaultContent);
+                return (defaultTitle, defaultContent, string.Empty);
             }
         }
 
@@ -163,8 +331,15 @@ namespace DynamicIslandWindows.Services
             if (string.IsNullOrEmpty(command)) return;
             try
             {
-                var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
-                var session = manager.GetCurrentSession();
+                var session = _currentSession;
+                if (session == null)
+                {
+                    if (_sessionManager == null)
+                    {
+                        _sessionManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
+                    }
+                    session = _sessionManager?.GetCurrentSession();
+                }
                 if (session == null) return;
 
                 switch (command)
@@ -221,6 +396,27 @@ namespace DynamicIslandWindows.Services
         {
             if (_disposed) return;
             _disposed = true;
+
+            if (_currentSession != null)
+            {
+                try
+                {
+                    _currentSession.PlaybackInfoChanged -= OnSessionPlaybackInfoChanged;
+                    _currentSession.MediaPropertiesChanged -= OnSessionMediaPropertiesChanged;
+                }
+                catch { }
+                _currentSession = null;
+            }
+
+            if (_sessionManager != null)
+            {
+                try
+                {
+                    _sessionManager.CurrentSessionChanged -= OnCurrentSessionChanged;
+                }
+                catch { }
+                _sessionManager = null;
+            }
 
             if (_listenerSetup)
             {

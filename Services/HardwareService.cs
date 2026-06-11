@@ -20,6 +20,10 @@ namespace DynamicIslandWindows.Services
         private readonly object _audioLock = new();
         private bool _disposed = false;
 
+        private readonly object _brightnessWriteLock = new();
+        private int _pendingBrightness = -1;
+        private bool _isWritingBrightness = false;
+
         private MMDevice? GetDefaultAudioDevice()
         {
             lock (_audioLock)
@@ -92,6 +96,38 @@ namespace DynamicIslandWindows.Services
             }
         }
 
+        public bool IsMuted()
+        {
+            try
+            {
+                var device = GetDefaultAudioDevice();
+                return device?.AudioEndpointVolume.Mute ?? false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[VolumeMutedGet] {ex.Message}");
+                CleanupAudioDevice();
+                return false;
+            }
+        }
+
+        public void ToggleMute()
+        {
+            try
+            {
+                var device = GetDefaultAudioDevice();
+                if (device != null)
+                {
+                    device.AudioEndpointVolume.Mute = !device.AudioEndpointVolume.Mute;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[VolumeMuteToggle] {ex.Message}");
+                CleanupAudioDevice();
+            }
+        }
+
         public int GetCurrentBrightness()
         {
             try
@@ -120,23 +156,51 @@ namespace DynamicIslandWindows.Services
 
         public void SetBrightness(int brightness)
         {
-            // BLINDAGEM: Não bloqueia o arrastar da barra no HTML / UI
+            lock (_brightnessWriteLock)
+            {
+                _pendingBrightness = Math.Clamp(brightness, 0, 100);
+                if (_isWritingBrightness)
+                {
+                    return;
+                }
+                _isWritingBrightness = true;
+            }
+
+            // BLINDAGEM: Não bloqueia o arrastar da barra no HTML / UI e executa de forma serializada coalescida
             Task.Run(() =>
             {
-                try
+                while (true)
                 {
-                    byte target = (byte)Math.Clamp(brightness, 0, 100);
-                    using var searcher = new ManagementObjectSearcher("root\\WMI", "SELECT * FROM WmiMonitorBrightnessMethods");
-                    using var instances = searcher.Get();
-                    foreach (ManagementObject o in instances)
+                    int targetValue;
+                    lock (_brightnessWriteLock)
                     {
-                        using (o)
+                        targetValue = _pendingBrightness;
+                        _pendingBrightness = -1;
+                        if (targetValue == -1)
                         {
-                            o.InvokeMethod("WmiSetBrightness", new object[] { 1, target });
+                            _isWritingBrightness = false;
+                            break;
                         }
                     }
+
+                    try
+                    {
+                        byte target = (byte)targetValue;
+                        using var searcher = new ManagementObjectSearcher("root\\WMI", "SELECT * FROM WmiMonitorBrightnessMethods");
+                        using var instances = searcher.Get();
+                        foreach (ManagementObject o in instances)
+                        {
+                            using (o)
+                            {
+                                o.InvokeMethod("WmiSetBrightness", new object[] { 1, target });
+                            }
+                        }
+                    }
+                    catch (Exception ex) 
+                    { 
+                        Debug.WriteLine($"[Brightness] Erro ao gravar brilho: {ex.Message}"); 
+                    }
                 }
-                catch (Exception ex) { Debug.WriteLine($"[Brightness] {ex.Message}"); }
             });
         }
 
