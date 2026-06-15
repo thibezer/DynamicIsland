@@ -31,6 +31,7 @@ namespace DynamicIslandWindows.Services
         private string _cachedMusicArtist = string.Empty;
         private string _cachedMusicThumbnailBase64 = string.Empty;
         private bool _cachedMusicIsPlaying = false;
+        private string _lastPlayingAppId = string.Empty;
 
         // Cache de metadados e ícone de notificações
         private string _cachedNotifTitle = string.Empty;
@@ -84,6 +85,25 @@ namespace DynamicIslandWindows.Services
         {
             if (_sessionManager == null) return;
 
+            var newSession = _sessionManager.GetCurrentSession();
+
+            // Verifica se a sessão realmente mudou
+            bool sessionChanged = false;
+            if (_currentSession == null && newSession != null)
+            {
+                sessionChanged = true;
+            }
+            else if (_currentSession != null && newSession == null)
+            {
+                sessionChanged = true;
+            }
+            else if (_currentSession != null && newSession != null)
+            {
+                sessionChanged = _currentSession.SourceAppUserModelId != newSession.SourceAppUserModelId;
+            }
+
+            if (!sessionChanged) return;
+
             // Desinscrever da sessão anterior
             if (_currentSession != null)
             {
@@ -95,7 +115,7 @@ namespace DynamicIslandWindows.Services
                 catch { }
             }
 
-            _currentSession = _sessionManager.GetCurrentSession();
+            _currentSession = newSession;
 
             // Inscrever na nova sessão
             if (_currentSession != null)
@@ -116,6 +136,7 @@ namespace DynamicIslandWindows.Services
 
         private void OnSessionMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, MediaPropertiesChangedEventArgs args)
         {
+            _cachedMusicThumbnailBase64 = string.Empty;
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -138,6 +159,11 @@ namespace DynamicIslandWindows.Services
                         UpdateCurrentSession();
                     }
                 }
+                else
+                {
+                    // Garante que o estado de _currentSession esteja atualizado se a API do Windows falhar em disparar os eventos
+                    UpdateCurrentSession();
+                }
 
                 var session = _currentSession;
                 if (session != null)
@@ -150,8 +176,27 @@ namespace DynamicIslandWindows.Services
                     }
                     catch { }
 
+                    string currentAppId = string.Empty;
+                    try
+                    {
+                        currentAppId = session.SourceAppUserModelId;
+                    }
+                    catch { }
+
+                    // Se a sessão estiver tocando, ela passa a ser a sessão ativa recente
+                    if (playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                    {
+                        _lastPlayingAppId = currentAppId;
+                    }
+
+                    // Se a sessão atual estiver pausada mas não for a sessão do app que estava tocando ativamente recente
+                    // (ou seja, é um app em segundo plano zumbi), nós ignoramos e tratamos como inativa
+                    bool isZombieSession = playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused &&
+                                           (string.IsNullOrEmpty(_lastPlayingAppId) || currentAppId != _lastPlayingAppId);
+
                     if (playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Stopped ||
-                        playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed)
+                        playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed ||
+                        isZombieSession)
                     {
                         state.Mode = "notification";
                         var (notifTitle, notifContent, appIcon) = await GetLatestNotificationAsync();
@@ -171,14 +216,18 @@ namespace DynamicIslandWindows.Services
                         state.Title = title;
                         state.Subtitle = artist;
 
-                        if (title == _cachedMusicTitle && artist == _cachedMusicArtist)
+                        // Se a música mudou, invalida o cache do thumbnail para forçar nova verificação
+                        if (title != _cachedMusicTitle || artist != _cachedMusicArtist)
                         {
-                            // A música é a mesma, logo o thumbnail é idêntico e o pegamos do cache instantaneamente
-                            state.Thumbnail = _cachedMusicThumbnailBase64;
+                            _cachedMusicThumbnailBase64 = string.Empty;
+                        }
+
+                        if (!string.IsNullOrEmpty(_cachedMusicThumbnailBase64))
+                        {
+                            state.Thumbnail = _cachedMusicThumbnailBase64 == "NO_THUMBNAIL" ? string.Empty : _cachedMusicThumbnailBase64;
                         }
                         else
                         {
-                            // Nova música! Carrega o thumbnail
                             state.Thumbnail = string.Empty;
 
                             if (info.Thumbnail != null)
@@ -194,15 +243,20 @@ namespace DynamicIslandWindows.Services
                                         byte[] bytes = new byte[stream.Size];
                                         reader.ReadBytes(bytes);
                                         state.Thumbnail = Convert.ToBase64String(bytes);
+                                        _cachedMusicThumbnailBase64 = state.Thumbnail;
                                     }
                                 }
                                 catch (Exception ex)
                                 {
                                     Debug.WriteLine($"[Thumbnail] {ex.Message}");
+                                    // Deixa vazio para tentar novamente mais tarde caso seja um problema de carregamento temporário
                                 }
                             }
-
-                            _cachedMusicThumbnailBase64 = state.Thumbnail;
+                            else
+                            {
+                                // Não há thumbnail de mídia disponível pelo SO
+                                _cachedMusicThumbnailBase64 = "NO_THUMBNAIL";
+                            }
                         }
 
                         // Atualiza o cache geral da música (incluindo estado de execução)

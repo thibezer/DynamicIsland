@@ -14,6 +14,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using System.Windows.Interop;
+using Microsoft.Win32;
 using DynamicIslandWindows.Services;
 
 namespace DynamicIslandWindows
@@ -80,7 +81,7 @@ namespace DynamicIslandWindows
         // Dimensões físicas lógicas finais do widget (sincronizadas e sem saltos)
         private const double ISLAND_OPEN_W       = 410;
         private const double ISLAND_OPEN_H       = 374;
-        private const double ISLAND_APPEARANCE_H = 265;
+        private const double ISLAND_APPEARANCE_H = 300;
         private const double DROPZONE_W          = 320;
         private const double DROPZONE_H          = 200;
 
@@ -133,6 +134,7 @@ namespace DynamicIslandWindows
         private bool _nearbyShareOn = false;
         private bool _castOn = false;
         private bool _projectOn = false;
+        private HardwareService.WiFiNetworkInfo? _selectedWifiNetwork;
 
         // ─── Serviços ────────────────────────────────────────────────────────────
         private readonly ExcelService _excelService;
@@ -181,6 +183,9 @@ namespace DynamicIslandWindows
             // Carrega e aplica a configuração de cores
             LoadConfig();
 
+            // Configura a inicialização automática com o Windows
+            ConfigureStartup();
+
             // Sincronizar Hardware
             try
             {
@@ -212,7 +217,14 @@ namespace DynamicIslandWindows
 
         private void InitializeTogglesUI()
         {
-            UpdateToggleButton(btnWifi, icoWifi, _wifiOn);
+            if (btnWifi != null && icoWifi != null)
+            {
+                UpdateToggleButton(btnWifi, icoWifi, _wifiOn);
+            }
+            if (btnWifiMenu != null && icoWifiMenu != null)
+            {
+                UpdateToggleButton(btnWifiMenu, icoWifiMenu, _wifiOn);
+            }
             UpdateToggleButton(btnBluetooth, icoBluetooth, _bluetoothOn);
             UpdateToggleButton(btnAirplane, icoAirplane, _airplaneOn);
             UpdateToggleButton(btnAccessibility, icoAccessibility, _accessibilityOn);
@@ -324,13 +336,18 @@ namespace DynamicIslandWindows
 
         // ─── Motor de Animação por Hardware Puro ──────────────────────────────────
         // Executado diretamente pela GPU, sem recalcular buffers de janela do SO.
-        private void AnimateBorder(double targetWidth, double targetHeight)
+        private void AnimateBorder(double targetWidth, double targetHeight, Action? onCompleted = null)
         {
             var duration = TimeSpan.FromMilliseconds(300);
             var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
 
             var widthAnim = new DoubleAnimation(islandBorder.Width, targetWidth, duration) { EasingFunction = easing };
             var heightAnim = new DoubleAnimation(islandBorder.Height, targetHeight, duration) { EasingFunction = easing };
+
+            if (onCompleted != null)
+            {
+                heightAnim.Completed += (s, e) => onCompleted();
+            }
 
             islandBorder.BeginAnimation(Border.WidthProperty, widthAnim);
             islandBorder.BeginAnimation(Border.HeightProperty, heightAnim);
@@ -342,10 +359,11 @@ namespace DynamicIslandWindows
             _isIslandOpen = true;
             _hoverCounter = 0;
 
-            if (islandBorder != null)
+            if (mainContentGrid != null)
             {
-                islandBorder.Padding = new Thickness(10, 12, 10, 12);
+                mainContentGrid.VerticalAlignment = VerticalAlignment.Bottom;
             }
+
             if (txtMiniTitle != null) txtMiniTitle.MaxWidth = 260;
             if (txtMiniSubtitle != null) txtMiniSubtitle.MaxWidth = 260;
 
@@ -362,21 +380,25 @@ namespace DynamicIslandWindows
             _isIslandOpen = false;
             _hoverCounter = 0;
 
-            if (islandBorder != null)
-            {
-                islandBorder.Padding = new Thickness(10, 6.5, 10, 6.5);
-            }
             if (txtMiniTitle != null) txtMiniTitle.MaxWidth = 220;
             if (txtMiniSubtitle != null) txtMiniSubtitle.MaxWidth = 220;
 
             expandedIslandPanel.Visibility = Visibility.Collapsed;
             appearancePanel.Visibility = Visibility.Collapsed;
+            wifiPanel.Visibility = Visibility.Collapsed;
+            wifiPasswordPanel.Visibility = Visibility.Collapsed;
             islandSeparator.Visibility = Visibility.Collapsed;
             dropZonePanel.Visibility = Visibility.Collapsed;
             miniIslandPanel.Visibility = Visibility.Visible;
 
             double dynamicWidth = GetDynamicCompactWidth();
-            AnimateBorder(dynamicWidth, _miniBaseHeightLogica);
+            AnimateBorder(dynamicWidth, _miniBaseHeightLogica, () =>
+            {
+                if (mainContentGrid != null)
+                {
+                    mainContentGrid.VerticalAlignment = VerticalAlignment.Center;
+                }
+            });
         }
 
         private void ActivateDropMode()
@@ -393,7 +415,6 @@ namespace DynamicIslandWindows
 
             if (islandBorder != null)
             {
-                islandBorder.Padding = new Thickness(10, 6.5, 10, 6.5);
                 islandBorder.Effect = null;
                 islandBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x2D));
             }
@@ -407,9 +428,13 @@ namespace DynamicIslandWindows
             expandedIslandPanel.Visibility = Visibility.Collapsed;
             dropZonePanel.Visibility = Visibility.Visible;
 
+            if (mainContentGrid != null)
+            {
+                mainContentGrid.VerticalAlignment = VerticalAlignment.Bottom;
+            }
+
             if (islandBorder != null)
             {
-                islandBorder.Padding = new Thickness(10, 12, 10, 12);
                 var dropShadow = new DropShadowEffect
                 {
                     Color = Color.FromRgb(0x4C, 0xC2, 0xFF),
@@ -487,8 +512,14 @@ namespace DynamicIslandWindows
             switch (action)
             {
                 case "wifi":
-                    _wifiOn = !_wifiOn; UpdateToggleButton(border, icoWifi, _wifiOn);
-                    await _hardwareService.HandleToggleAsync("wifi", _wifiOn); break;
+                    _wifiOn = !_wifiOn;
+                    UpdateToggleButton(btnWifi, icoWifi, _wifiOn);
+                    if (btnWifiMenu != null && icoWifiMenu != null)
+                    {
+                        UpdateToggleButton(btnWifiMenu, icoWifiMenu, _wifiOn);
+                    }
+                    await _hardwareService.HandleToggleAsync("wifi", _wifiOn);
+                    break;
                 case "bluetooth":
                     _bluetoothOn = !_bluetoothOn; UpdateToggleButton(border, icoBluetooth, _bluetoothOn);
                     await _hardwareService.HandleToggleAsync("bluetooth", _bluetoothOn); break;
@@ -827,14 +858,44 @@ namespace DynamicIslandWindows
             e.Handled = true;
             expandedIslandPanel.Visibility = Visibility.Collapsed;
             appearancePanel.Visibility = Visibility.Visible;
-            AnimateBorder(ISLAND_OPEN_W, ISLAND_APPEARANCE_H);
+
+            if (mainContentGrid != null)
+            {
+                mainContentGrid.VerticalAlignment = VerticalAlignment.Bottom;
+            }
+
+            // Mede a altura ideal com base no conteúdo para evitar espaço sobrando no topo ou cortes
+            appearancePanel.UpdateLayout();
+            appearancePanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
+            double appearanceHeight = appearancePanel.DesiredSize.Height;
+
+            miniIslandPanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
+            double miniHeight = miniIslandPanel.DesiredSize.Height;
+
+            // Altura total = altura do painel de cores + pílula compacta + separador (6px) + padding (13px) + margem superior desejada (10px) = 29px
+            double totalHeight = appearanceHeight + miniHeight + 29;
+
+            // Limita a altura para não exceder o limite máximo da ilha
+            totalHeight = Math.Min(totalHeight, ISLAND_OPEN_H);
+
+            AnimateBorder(ISLAND_OPEN_W, totalHeight);
         }
 
         private void BackToMainPanel_Click(object sender, MouseButtonEventArgs e)
         {
             e.Handled = true;
             appearancePanel.Visibility = Visibility.Collapsed;
+            wifiPanel.Visibility = Visibility.Collapsed;
+            wifiPasswordPanel.Visibility = Visibility.Collapsed;
             expandedIslandPanel.Visibility = Visibility.Visible;
+            if (btnWifi != null && icoWifi != null)
+            {
+                UpdateToggleButton(btnWifi, icoWifi, _wifiOn);
+            }
+            if (btnWifiMenu != null && icoWifiMenu != null)
+            {
+                UpdateToggleButton(btnWifiMenu, icoWifiMenu, _wifiOn);
+            }
             AnimateBorder(ISLAND_OPEN_W, ISLAND_OPEN_H);
         }
 
@@ -965,6 +1026,36 @@ namespace DynamicIslandWindows
             catch (Exception ex)
             {
                 Debug.WriteLine($"[SaveConfig] {ex.Message}");
+            }
+        }
+
+        private void ConfigureStartup()
+        {
+            try
+            {
+                string keyName = "DynamicIsland";
+                string? exePath = Environment.ProcessPath;
+
+                if (!string.IsNullOrEmpty(exePath))
+                {
+                    using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true))
+                    {
+                        if (key != null)
+                        {
+                            string value = $"\"{exePath}\"";
+                            object? currentValue = key.GetValue(keyName);
+                            if (currentValue == null || currentValue.ToString() != value)
+                            {
+                                key.SetValue(keyName, value);
+                                Debug.WriteLine($"[Startup] Registro de inicialização atualizado para: {value}");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Startup] Erro ao configurar inicialização: {ex.Message}");
             }
         }
 
@@ -1151,6 +1242,287 @@ namespace DynamicIslandWindows
                     Debug.WriteLine($"[LostFocus] {ex.Message}");
                 }
             }
+        }
+
+        // ─── LÓGICA DO MENU DE WI-FI INTERNO ──────────────────────────────────────────
+        private void UpdateWifiToggleHeaderUI()
+        {
+            if (btnWifiToggleHeader == null || wifiSwitchIndicator == null) return;
+            
+            if (_wifiOn)
+            {
+                btnWifiToggleHeader.Background = new SolidColorBrush(_themeColor);
+                wifiSwitchIndicator.HorizontalAlignment = HorizontalAlignment.Right;
+            }
+            else
+            {
+                var brush = this.Resources["IslandInactiveBrush"] as Brush;
+                btnWifiToggleHeader.Background = brush ?? new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x20));
+                wifiSwitchIndicator.HorizontalAlignment = HorizontalAlignment.Left;
+            }
+        }
+
+        private async void WifiToggleHeader_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            _wifiOn = !_wifiOn;
+            UpdateWifiToggleHeaderUI();
+            
+            // Liga/Desliga o rádio
+            await _hardwareService.HandleToggleAsync("wifi", _wifiOn);
+            
+            // Atualiza a lista
+            _ = RefreshWifiListAsync();
+        }
+
+        private async Task RefreshWifiListAsync()
+        {
+            if (wifiListContainer == null) return;
+            wifiListContainer.Children.Clear();
+
+            if (!_wifiOn)
+            {
+                var txtOff = new TextBlock
+                {
+                    Style = this.Resources["FluentTextSec"] as Style,
+                    Text = "O Wi-Fi está desativado.",
+                    FontSize = 12,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 40, 0, 0)
+                };
+                wifiListContainer.Children.Add(txtOff);
+                AdjustWifiPanelHeight();
+                return;
+            }
+
+            var txtScanning = new TextBlock
+            {
+                Style = this.Resources["FluentTextSec"] as Style,
+                Text = "Procurando redes...",
+                FontSize = 12,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 40, 0, 0)
+            };
+            wifiListContainer.Children.Add(txtScanning);
+            AdjustWifiPanelHeight();
+
+            var networks = await _hardwareService.GetAvailableNetworksAsync();
+
+            wifiListContainer.Children.Clear();
+
+            if (networks == null || networks.Count == 0)
+            {
+                var txtNone = new TextBlock
+                {
+                    Style = this.Resources["FluentTextSec"] as Style,
+                    Text = "Nenhuma rede encontrada.",
+                    FontSize = 12,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 40, 0, 0)
+                };
+                wifiListContainer.Children.Add(txtNone);
+                AdjustWifiPanelHeight();
+                return;
+            }
+
+            RenderWifiNetworks(networks);
+            AdjustWifiPanelHeight();
+        }
+
+        private void RenderWifiNetworks(System.Collections.Generic.List<HardwareService.WiFiNetworkInfo> networks)
+        {
+            if (wifiListContainer == null) return;
+
+            foreach (var net in networks)
+            {
+                var itemBorder = new Border
+                {
+                    Background = this.Resources["IslandInactiveBrush"] as Brush ?? new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x20)),
+                    CornerRadius = new CornerRadius(8),
+                    Margin = new Thickness(0, 0, 0, 4),
+                    Padding = new Thickness(10, 8, 10, 8),
+                    Cursor = Cursors.Hand,
+                    Tag = net
+                };
+
+                itemBorder.MouseEnter += (s, ev) => { itemBorder.Background = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x30)); };
+                itemBorder.MouseLeave += (s, ev) => { itemBorder.Background = this.Resources["IslandInactiveBrush"] as Brush ?? new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x20)); };
+                itemBorder.MouseLeftButtonDown += WifiNetworkItem_Click;
+
+                var grid = new Grid();
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var txtSsid = new TextBlock
+                {
+                    Style = this.Resources["FluentText"] as Style,
+                    Text = net.Ssid,
+                    FontSize = 12,
+                    FontWeight = FontWeights.Medium,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                Grid.SetColumn(txtSsid, 0);
+                grid.Children.Add(txtSsid);
+
+                bool isSecure = !net.SecurityKind.Equals("None", StringComparison.OrdinalIgnoreCase) && 
+                                !net.SecurityKind.Equals("Open", StringComparison.OrdinalIgnoreCase);
+                if (isSecure)
+                {
+                    var txtLock = new TextBlock
+                    {
+                        Style = this.Resources["FluentIcon"] as Style,
+                        Text = "\uE72E",
+                        FontSize = 12,
+                        Foreground = Brushes.LightGray,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(8, 0, 8, 0)
+                    };
+                    Grid.SetColumn(txtLock, 1);
+                    grid.Children.Add(txtLock);
+                }
+
+                var txtSignal = new TextBlock
+                {
+                    Style = this.Resources["FluentIcon"] as Style,
+                    Text = GetWifiIconGlyph(net.SignalBars),
+                    FontSize = 14,
+                    Foreground = Brushes.White,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(txtSignal, 2);
+                grid.Children.Add(txtSignal);
+
+                itemBorder.Child = grid;
+                wifiListContainer.Children.Add(itemBorder);
+            }
+        }
+
+        private string GetWifiIconGlyph(int bars)
+        {
+            switch (bars)
+            {
+                case 0: return "\uE701";
+                case 1: return "\uE701";
+                case 2: return "\uE702";
+                case 3: return "\uE703";
+                case 4: return "\uE704";
+                default: return "\uE704";
+            }
+        }
+
+        private void WifiNetworkItem_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is Border item && item.Tag is HardwareService.WiFiNetworkInfo net)
+            {
+                e.Handled = true;
+                _selectedWifiNetwork = net;
+
+                bool isSecure = !net.SecurityKind.Equals("None", StringComparison.OrdinalIgnoreCase) && 
+                                !net.SecurityKind.Equals("Open", StringComparison.OrdinalIgnoreCase);
+                
+                if (!isSecure)
+                {
+                    _ = ConnectToWifiNetwork(net, "");
+                }
+                else
+                {
+                    txtWifiPasswordPrompt.Text = $"Introduza a palavra-passe para \"{net.Ssid}\"";
+                    txtWifiPassword.Text = "";
+                    wifiPasswordPanel.Visibility = Visibility.Visible;
+                    txtWifiPassword.Focus();
+                }
+            }
+        }
+
+        private void CancelWifiConnection_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            wifiPasswordPanel.Visibility = Visibility.Collapsed;
+            _selectedWifiNetwork = null;
+            AdjustWifiPanelHeight();
+        }
+
+        private void ConnectWifi_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            if (_selectedWifiNetwork == null) return;
+
+            string password = txtWifiPassword.Text;
+            wifiPasswordPanel.Visibility = Visibility.Collapsed;
+
+            _ = ConnectToWifiNetwork(_selectedWifiNetwork, password);
+        }
+
+        private async Task ConnectToWifiNetwork(HardwareService.WiFiNetworkInfo net, string password)
+        {
+            if (wifiListContainer == null) return;
+
+            wifiListContainer.Children.Clear();
+            var txtConnecting = new TextBlock
+            {
+                Style = this.Resources["FluentTextSec"] as Style,
+                Text = $"A ligar a \"{net.Ssid}\"...",
+                FontSize = 12,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 40, 0, 0)
+            };
+            wifiListContainer.Children.Add(txtConnecting);
+            AdjustWifiPanelHeight();
+
+            bool success = false;
+            if (net.RawNetwork != null)
+            {
+                success = await _hardwareService.ConnectToNetworkAsync(net.RawNetwork, password);
+            }
+
+            if (success)
+            {
+                MessageBox.Show($"Ligado com sucesso a \"{net.Ssid}\"!", "Wi-Fi", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show($"Não foi possível ligar a \"{net.Ssid}\". Verifique a palavra-passe.", "Erro Wi-Fi", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+
+            _ = RefreshWifiListAsync();
+        }
+
+        private void WifiMenuOpen_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            expandedIslandPanel.Visibility = Visibility.Collapsed;
+            wifiPanel.Visibility = Visibility.Visible;
+
+            if (mainContentGrid != null)
+            {
+                mainContentGrid.VerticalAlignment = VerticalAlignment.Bottom;
+            }
+
+            UpdateWifiToggleHeaderUI();
+            _ = RefreshWifiListAsync();
+        }
+
+        private void AdjustWifiPanelHeight()
+        {
+            if (wifiPanel == null || miniIslandPanel == null) return;
+
+            // Mede a altura do painel com base no conteúdo
+            wifiPanel.UpdateLayout();
+            wifiPanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
+            double wifiHeight = wifiPanel.DesiredSize.Height;
+
+            miniIslandPanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
+            double miniHeight = miniIslandPanel.DesiredSize.Height;
+
+            // Altura final = wifiHeight + miniHeight + separador (10) + margem do border (12*2 = 24)
+            double totalHeight = wifiHeight + miniHeight + 34;
+
+            // Limita ao tamanho máximo do painel aberto
+            totalHeight = Math.Min(totalHeight, ISLAND_OPEN_H);
+
+            AnimateBorder(ISLAND_OPEN_W, totalHeight);
         }
     }
 }

@@ -237,7 +237,7 @@
                 Drop="Window_Drop"
                 MouseLeftButtonDown="IslandBorder_MouseLeftButtonDown">
             
-        <Grid VerticalAlignment="Center">
+        <Grid Name="mainContentGrid" VerticalAlignment="Center">
             <!-- 
               GRID PRINCIPAL DE POSICIONAMENTO E ANCORAGEM
               Contém a inversão estética onde o painel expandido se estende para cima (Row 0),
@@ -359,7 +359,68 @@
                     </StackPanel>
                 </Grid>
 
-                <Grid Name="expandedIslandPanel" Grid.Row="0" Visibility="Collapsed" Margin="0">
+                <!-- Painel Interno do Wi-Fi (NOVO) -->
+                <Grid Name="wifiPanel" Grid.Row="0" Visibility="Collapsed" Margin="0,5,0,10" Width="388" HorizontalAlignment="Center">
+                    <Grid.RowDefinitions>
+                        <!-- Linha 0: Cabeçalho com botão Voltar e Switch Geral -->
+                        <RowDefinition Height="Auto" />
+                        <!-- Linha 1: Lista de Redes Wi-Fi com Scroll -->
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    
+                    <!-- Cabeçalho do Wi-Fi -->
+                    <Grid Grid.Row="0" Margin="0,0,0,10">
+                        <Border Style="{StaticResource TactileBorderButtonStyle}" Width="30" Height="30" CornerRadius="15" Background="{DynamicResource IslandInactiveBrush}" HorizontalAlignment="Left" Cursor="Hand" MouseLeftButtonDown="BackToMainPanel_Click">
+                            <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE72B;" FontSize="12" />
+                        </Border>
+                        
+                        <TextBlock Style="{StaticResource FluentText}" Text="Redes Wi-Fi" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        
+                        <!-- Switch Ligar/Desligar Wi-Fi -->
+                        <Border Style="{StaticResource TactileBorderButtonStyle}" Name="btnWifiToggleHeader" Width="44" Height="24" CornerRadius="12" Background="{DynamicResource IslandInactiveBrush}" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="WifiToggleHeader_Click">
+                            <Grid>
+                                <!-- Uma pílula indicadora do switch -->
+                                <Border Name="wifiSwitchIndicator" Width="16" Height="16" CornerRadius="8" Background="White" HorizontalAlignment="Left" Margin="4,0" />
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <!-- Lista de Redes Wi-Fi em Scroll -->
+                    <ScrollViewer Grid.Row="1" MaxHeight="200" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" VerticalAlignment="Top">
+                        <StackPanel Name="wifiListContainer" Margin="0">
+                            <!-- Inserido dinamicamente via C# -->
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Painel de Inserção de Senha (Sobreposto dentro do wifiPanel) -->
+                    <Grid Name="wifiPasswordPanel" Grid.Row="1" Visibility="Collapsed" Background="#D5000000" VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
+                        <Border CornerRadius="12" Padding="15" Background="{DynamicResource IslandInactiveBrush}" VerticalAlignment="Center" HorizontalAlignment="Center" Width="320">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource FluentText}" Name="txtWifiPasswordPrompt" Text="Introduza a palavra-passe" FontSize="11" FontWeight="Bold" Margin="0,0,0,8" />
+                                
+                                <TextBox Name="txtWifiPassword" Style="{StaticResource HexTextBoxStyle}" Height="32" Margin="0,0,0,10" GotFocus="TextBox_GotFocus" LostFocus="TextBox_LostFocus" HorizontalContentAlignment="Left" Padding="8,4" />
+                                
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="8" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <Border Grid.Column="0" Style="{StaticResource TactileBorderButtonStyle}" CornerRadius="6" Background="#FF444444" Height="28" Cursor="Hand" MouseLeftButtonDown="CancelWifiConnection_Click">
+                                        <TextBlock Style="{StaticResource FluentText}" Text="Cancelar" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    
+                                    <Border Grid.Column="2" Style="{StaticResource TactileBorderButtonStyle}" CornerRadius="6" Background="{DynamicResource ThemeAccentBrush}" Height="28" Cursor="Hand" MouseLeftButtonDown="ConnectWifi_Click">
+                                        <TextBlock Style="{StaticResource FluentText}" Text="Conectar" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Grid>
+
+                <Grid Name="expandedIslandPanel" Grid.Row="0" Visibility="Collapsed" Margin="0,5.5,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
@@ -385,13 +446,26 @@
                             <RowDefinition Height="40" />
                         </Grid.RowDefinitions>
                         
-                        <!-- Toggle: Wi-Fi -->
-                        <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource ToggleButtonStyle}" Name="btnWifi" MouseLeftButtonDown="Toggle_Click" Tag="wifi">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
-                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE701;" FontSize="15" Width="20" Name="icoWifi" Foreground="#4CC2FF" />
-                                <TextBlock Style="{StaticResource FluentText}" Text="Wi-Fi" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Border>
+                        <!-- Toggle: Wi-Fi Dividido (Split Button) -->
+                        <Grid Grid.Row="0" Grid.Column="0" Width="126" Height="40">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="32" />
+                            </Grid.ColumnDefinitions>
+                            
+                            <!-- Parte Esquerda: Liga/Desliga Wi-Fi -->
+                            <Border Grid.Column="0" Style="{StaticResource ToggleButtonStyle}" Width="94" Height="40" CornerRadius="12.5,0,0,12.5" Name="btnWifi" MouseLeftButtonDown="Toggle_Click" Tag="wifi">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                    <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE701;" FontSize="15" Width="20" Name="icoWifi" Foreground="#4CC2FF" />
+                                    <TextBlock Style="{StaticResource FluentText}" Text="Wi-Fi" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
+                            
+                            <!-- Parte Direita: Abre Menu do Wi-Fi -->
+                            <Border Grid.Column="1" Style="{StaticResource ToggleButtonStyle}" Width="32" Height="40" CornerRadius="0,12.5,12.5,0" Name="btnWifiMenu" MouseLeftButtonDown="WifiMenuOpen_Click" Tag="wifi_menu" BorderThickness="1,0,0,0" BorderBrush="#22FFFFFF" Padding="0">
+                                <TextBlock Name="icoWifiMenu" Style="{StaticResource FluentIcon}" Text="&#xE974;" FontSize="10" Foreground="White" Opacity="0.8" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </Grid>
 
                         <!-- Toggle: Bluetooth -->
                         <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource ToggleButtonStyle}" Name="btnBluetooth" MouseLeftButtonDown="Toggle_Click" Tag="bluetooth">
@@ -566,7 +640,7 @@
                 <!-- 
                   ══ Row 0: Drop Zone (Painel de Arquivo Arrastado - Sem Bordas Internas) ══════════════════════
                 -->
-                <Grid Name="dropZonePanel" Grid.Row="0" Visibility="Collapsed">
+                <Grid Name="dropZonePanel" Grid.Row="0" Visibility="Collapsed" Margin="0,5.5,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />

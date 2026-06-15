@@ -5,6 +5,8 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using NAudio.CoreAudioApi;
 using Windows.Devices.Radios;
+using Windows.Devices.WiFi;
+using Windows.Devices.Enumeration;
 
 namespace DynamicIslandWindows.Services
 {
@@ -215,7 +217,7 @@ namespace DynamicIslandWindows.Services
                 case "accessibility":  OpenUri("ms-settings:easeofaccess-display");      break;
                 case "battery_saver":  OpenUri("ms-settings:batterysaver");              break;
                 case "live_captions":  TriggerLiveCaptionsShortcut();                    break;
-                case "night_light":    OpenUri("ms-settings:nightlight");                break;
+                case "night_light":    SetNightLight(state);                             break;
                 case "mobile_hotspot": OpenUri("ms-settings:network-mobilehotspot");     break;
                 case "nearby_share":   OpenUri("ms-settings:crossdevice");               break;
                 case "cast":           OpenUri("ms-settings-connectabledevices:devicediscovery"); break;
@@ -268,6 +270,198 @@ namespace DynamicIslandWindows.Services
                 keybd_event(0x5B, 0, KEYEVENTF_KEYUP,   0);
             }
             catch (Exception ex) { Debug.WriteLine($"[Shortcut] {ex.Message}"); }
+        }
+
+        // P/Invoke para GammaRamp (Luz Noturna Direta)
+        [DllImport("gdi32.dll")]
+        private static extern bool SetDeviceGammaRamp(IntPtr hdc, ref Ramp lpRamp);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool GetDeviceGammaRamp(IntPtr hdc, ref Ramp lpRamp);
+
+        [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr CreateDC(string lpszDriver, string? lpszDevice, string? lpszOutput, IntPtr lpInitData);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteDC(IntPtr hdc);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+        private struct Ramp
+        {
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)]
+            public ushort[] Red;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)]
+            public ushort[] Green;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)]
+            public ushort[] Blue;
+        }
+
+        private static Ramp? _originalRamp;
+        private static bool _isNightLightActive = false;
+
+        public void SetNightLight(bool active)
+        {
+            IntPtr hdc = CreateDC("DISPLAY", null, null, IntPtr.Zero);
+            if (hdc == IntPtr.Zero) return;
+
+            try
+            {
+                if (active)
+                {
+                    // Salva a rampa original
+                    if (!_isNightLightActive)
+                    {
+                        var currentRamp = new Ramp
+                        {
+                            Red = new ushort[256],
+                            Green = new ushort[256],
+                            Blue = new ushort[256]
+                        };
+                        if (GetDeviceGammaRamp(hdc, ref currentRamp))
+                        {
+                            _originalRamp = currentRamp;
+                        }
+                    }
+
+                    // Rampa de cor aquecida (Warm/Night Light)
+                    var warmRamp = new Ramp
+                    {
+                        Red = new ushort[256],
+                        Green = new ushort[256],
+                        Blue = new ushort[256]
+                    };
+
+                    for (int i = 0; i < 256; i++)
+                    {
+                        ushort baseVal = (ushort)(i * 257); // Escala linear 0-65535
+                        warmRamp.Red[i] = baseVal;
+                        warmRamp.Green[i] = (ushort)(baseVal * 0.85); // Reduz verde em 15%
+                        warmRamp.Blue[i] = (ushort)(baseVal * 0.60);  // Reduz azul em 40%
+                    }
+
+                    SetDeviceGammaRamp(hdc, ref warmRamp);
+                    _isNightLightActive = true;
+                }
+                else
+                {
+                    // Restaura a rampa original
+                    if (_originalRamp.HasValue)
+                    {
+                        var ramp = _originalRamp.Value;
+                        SetDeviceGammaRamp(hdc, ref ramp);
+                    }
+                    else
+                    {
+                        var linearRamp = new Ramp
+                        {
+                            Red = new ushort[256],
+                            Green = new ushort[256],
+                            Blue = new ushort[256]
+                        };
+                        for (int i = 0; i < 256; i++)
+                        {
+                            ushort val = (ushort)(i * 257);
+                            linearRamp.Red[i] = val;
+                            linearRamp.Green[i] = val;
+                            linearRamp.Blue[i] = val;
+                        }
+                        SetDeviceGammaRamp(hdc, ref linearRamp);
+                    }
+                    _isNightLightActive = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[NightLightGamma] {ex.Message}");
+            }
+            finally
+            {
+                DeleteDC(hdc);
+            }
+        }
+
+        // LÓGICA DE WI-FI (APIs NATIVAS DO WINDOWS RUNTIME)
+        public class WiFiNetworkInfo
+        {
+            public string Ssid { get; set; } = string.Empty;
+            public int SignalBars { get; set; }
+            public string Bssid { get; set; } = string.Empty;
+            public string SecurityKind { get; set; } = string.Empty;
+            public object? RawNetwork { get; set; } // WiFiAvailableNetwork
+        }
+
+        public async Task<List<WiFiNetworkInfo>> GetAvailableNetworksAsync()
+        {
+            var list = new List<WiFiNetworkInfo>();
+            try
+            {
+                var access = await WiFiAdapter.RequestAccessAsync();
+                if (access != WiFiAccessStatus.Allowed)
+                {
+                    Debug.WriteLine("[WiFi] Acesso ao adaptador negado.");
+                    return list;
+                }
+
+                var deviceSelector = WiFiAdapter.GetDeviceSelector();
+                var devices = await DeviceInformation.FindAllAsync(deviceSelector);
+                if (devices.Count == 0)
+                {
+                    Debug.WriteLine("[WiFi] Nenhum adaptador Wi-Fi encontrado no sistema.");
+                    return list;
+                }
+
+                var adapter = await WiFiAdapter.FromIdAsync(devices[0].Id);
+                await adapter.ScanAsync();
+
+                if (adapter.NetworkReport != null)
+                {
+                    foreach (var net in adapter.NetworkReport.AvailableNetworks)
+                    {
+                        if (string.IsNullOrEmpty(net.Ssid)) continue;
+                        list.Add(new WiFiNetworkInfo
+                        {
+                            Ssid = net.Ssid,
+                            SignalBars = net.SignalBars,
+                            Bssid = net.Bssid,
+                            SecurityKind = net.SecuritySettings.NetworkEncryptionType.ToString(),
+                            RawNetwork = net
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WiFiScan] {ex.Message}");
+            }
+            return list;
+        }
+
+        public async Task<bool> ConnectToNetworkAsync(object rawNetwork, string password)
+        {
+            try
+            {
+                if (rawNetwork is not WiFiAvailableNetwork net) return false;
+
+                var deviceSelector = WiFiAdapter.GetDeviceSelector();
+                var devices = await DeviceInformation.FindAllAsync(deviceSelector);
+                if (devices.Count == 0) return false;
+
+                var adapter = await WiFiAdapter.FromIdAsync(devices[0].Id);
+                
+                var credential = new Windows.Security.Credentials.PasswordCredential();
+                if (!string.IsNullOrEmpty(password))
+                {
+                    credential.Password = password;
+                }
+
+                var connectionResult = await adapter.ConnectAsync(net, WiFiReconnectionKind.Automatic, credential);
+                return connectionResult.ConnectionStatus == WiFiConnectionStatus.Success;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WiFiConnect] {ex.Message}");
+                return false;
+            }
         }
 
         public void Dispose()
