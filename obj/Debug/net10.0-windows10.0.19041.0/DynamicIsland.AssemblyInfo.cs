@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DynamicIsland")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b60e7ef1358a73da1a419456828bb83d79df70ad")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9ea04ae81808ea6134cc2cf97a8b3c698b28c341")]
 [assembly: System.Reflection.AssemblyProductAttribute("DynamicIsland")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DynamicIsland")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

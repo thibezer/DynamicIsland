@@ -106,6 +106,8 @@ namespace DynamicIslandWindows
         private const int TOPMOST_REFRESH_TICKS = 10;
         private int _fullScreenCheckCounter = 0;
         private bool _isFullScreenCached = false;
+        private bool _isInitializing = true;
+        private double _cachedCompactWidth = -1;
 
         // Throttling de Brilho, Mute e Configuração
         private DateTime _lastBrightnessTime = DateTime.MinValue;
@@ -203,6 +205,7 @@ namespace DynamicIslandWindows
                 Debug.WriteLine($"[HardwareInit] {ex.Message}");
             }
 
+            _isInitializing = false;
             InitializeTogglesUI();
             _isFullScreenCached = IsFullScreen();
             SetupHoverTimer();
@@ -282,10 +285,20 @@ namespace DynamicIslandWindows
                 _isFullScreenCached = IsFullScreen();
             }
 
-            var targetVisibility = _isFullScreenCached ? Visibility.Collapsed : Visibility.Visible;
-            if (this.Visibility != targetVisibility)
+            if (_isFullScreenCached)
             {
-                this.Visibility = targetVisibility;
+                if (this.Visibility != Visibility.Collapsed)
+                {
+                    this.Visibility = Visibility.Collapsed;
+                }
+                return; // Pula hit-test, mouse tracking e topmost refreshes em fullscreen
+            }
+            else
+            {
+                if (this.Visibility != Visibility.Visible)
+                {
+                    this.Visibility = Visibility.Visible;
+                }
             }
 
             if (this.Visibility == Visibility.Visible)
@@ -306,32 +319,41 @@ namespace DynamicIslandWindows
                           mousePos.Y >= (this.Height - 10 - islandBorder.ActualHeight) &&
                           mousePos.Y <= this.Height - 10;
 
-            if (!_isIslandOpen && _currentMode == "notification" && inZone && !_isDraggingFile && !_isDropZoneActive)
+            bool wantOpen  = !_isIslandOpen && _currentMode == "notification" && inZone && !_isDraggingFile && !_isDropZoneActive;
+            bool wantClose = (_isIslandOpen || _isDropZoneActive) && !inZone;
+
+            if (wantOpen)
             {
-                if (++_hoverCounter >= HOVER_TICKS_TO_OPEN) { OpenIsland(); _hoverCounter = 0; }
+                if (++_hoverCounter >= HOVER_TICKS_TO_OPEN)
+                {
+                    OpenIsland();
+                    _hoverCounter = 0;
+                }
             }
-            else if ((_isIslandOpen || _isDropZoneActive) && !inZone)
+            else if (wantClose)
             {
                 int ticksToClose = _isDropZoneActive ? 30 : HOVER_TICKS_TO_CLOSE;
-                if (++_hoverCounter >= ticksToClose) 
-                { 
+                if (++_hoverCounter >= ticksToClose)
+                {
                     if (_isIslandOpen) CloseIsland();
                     if (_isDropZoneActive) DeactivateDropMode();
-                    _hoverCounter = 0; 
+                    _hoverCounter = 0;
                 }
             }
             else
             {
-                if (!inZone || ((_isIslandOpen || _isDropZoneActive) && inZone)) _hoverCounter = 0;
+                _hoverCounter = 0;
             }
         }
 
         private double GetDynamicCompactWidth()
         {
+            if (_cachedCompactWidth > 0) return _cachedCompactWidth;
             if (miniIslandPanel == null) return 340;
             miniIslandPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             double idealWidth = miniIslandPanel.DesiredSize.Width + 30;
-            return Math.Clamp(idealWidth, 200, 380);
+            _cachedCompactWidth = Math.Clamp(idealWidth, 200, 380);
+            return _cachedCompactWidth;
         }
 
         // ─── Motor de Animação por Hardware Puro ──────────────────────────────────
@@ -679,32 +701,71 @@ namespace DynamicIslandWindows
                 var state = await _mediaService.GetCurrentStateAsync();
                 _currentMode = state.Mode;
 
+                BitmapImage? decodedThumbnail = null;
+                if (state.Mode == "music" && !string.IsNullOrEmpty(state.Thumbnail))
+                {
+                    try
+                    {
+                        decodedThumbnail = await Task.Run(() =>
+                        {
+                            byte[] binaryData = Convert.FromBase64String(state.Thumbnail);
+                            var bitmap = new BitmapImage();
+                            bitmap.BeginInit();
+                            bitmap.StreamSource = new MemoryStream(binaryData);
+                            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                            bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+                            bitmap.EndInit();
+                            bitmap.Freeze(); // Permite uso cross-thread no WPF
+                            return bitmap;
+                        });
+                    }
+                    catch (Exception imgEx)
+                    {
+                        Debug.WriteLine($"[ImageDecodeBackgroundError] {imgEx.Message}");
+                    }
+                }
+
                 this.Dispatcher.Invoke(() =>
                 {
+                    // Verifica se o conteúdo compacto mudou para invalidar o cache da largura
+                    bool contentChanged = false;
+                    if (txtMiniTitle.Text != state.Title) contentChanged = true;
+                    if (txtMiniSubtitle.Text != state.Subtitle) contentChanged = true;
+
+                    string expectedPlayGlyph = state.IsPlaying ? "\uE769" : "\uE768";
+                    if (state.Mode == "music")
+                    {
+                        if (miniMediaControls.Visibility != Visibility.Visible) contentChanged = true;
+                        if (txtMiniPlayIcon.Text != expectedPlayGlyph) contentChanged = true;
+                        
+                        bool hasThumb = decodedThumbnail != null;
+                        if (hasThumb && miniThumbBorder.Visibility != Visibility.Visible) contentChanged = true;
+                        if (!hasThumb && txtMiniIcon.Visibility != Visibility.Visible) contentChanged = true;
+                    }
+                    else
+                    {
+                        if (miniMediaControls.Visibility != Visibility.Collapsed) contentChanged = true;
+                        if (txtMiniIcon.Text != "\uE990" || txtMiniIcon.Visibility != Visibility.Visible) contentChanged = true;
+                    }
+
+                    if (contentChanged)
+                    {
+                        _cachedCompactWidth = -1;
+                    }
+
                     if (state.Mode == "music")
                     {
                         miniMediaControls.Visibility = Visibility.Visible;
                         
                         txtMiniTitle.Text = state.Title;
                         txtMiniSubtitle.Text = state.Subtitle;
+                        txtMiniPlayIcon.Text = expectedPlayGlyph;
 
-                        string playGlyph = state.IsPlaying ? "\uE769" : "\uE768";
-                        txtMiniPlayIcon.Text = playGlyph;
-
-                        if (!string.IsNullOrEmpty(state.Thumbnail))
+                        if (decodedThumbnail != null)
                         {
                             try
                             {
-                                byte[] binaryData = Convert.FromBase64String(state.Thumbnail);
-                                var bitmap = new BitmapImage();
-                                bitmap.BeginInit();
-                                bitmap.StreamSource = new System.IO.MemoryStream(binaryData);
-                                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                                bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
-                                bitmap.EndInit();
-                                bitmap.Freeze();
-
-                                miniThumbBorder.Background = new ImageBrush(bitmap) { Stretch = Stretch.UniformToFill };
+                                miniThumbBorder.Background = new ImageBrush(decodedThumbnail) { Stretch = Stretch.UniformToFill };
                                 miniThumbBorder.Visibility = Visibility.Visible;
                                 txtMiniIcon.Visibility = Visibility.Collapsed;
                             }
@@ -812,6 +873,7 @@ namespace DynamicIslandWindows
                     {
                         wp.flags &= ~SWP_HIDEWINDOW; wp.flags |= SWP_SHOWWINDOW;
                         Marshal.StructureToPtr(wp, lParam, false);
+                        handled = true;
                     }
                 }
             }
@@ -830,7 +892,6 @@ namespace DynamicIslandWindows
             {
                 SHQueryUserNotificationState(out var state);
                 return state is QUERY_USER_NOTIFICATION_STATE.QUNS_RUNNING_D3D_FULL_SCREEN
-                             or QUERY_USER_NOTIFICATION_STATE.QUNS_BUSY
                              or QUERY_USER_NOTIFICATION_STATE.QUNS_PRESENTATION_MODE;
             }
             catch { return false; }
@@ -872,8 +933,8 @@ namespace DynamicIslandWindows
             miniIslandPanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
             double miniHeight = miniIslandPanel.DesiredSize.Height;
 
-            // Altura total = altura do painel de cores + pílula compacta + separador (6px) + padding (13px) + margem superior desejada (10px) = 29px
-            double totalHeight = appearanceHeight + miniHeight + 29;
+            // Altura total = altura do painel de cores + pílula compacta + separador (6px) + padding (13px) = 19px
+            double totalHeight = appearanceHeight + miniHeight + 19;
 
             // Limita a altura para não exceder o limite máximo da ilha
             totalHeight = Math.Min(totalHeight, ISLAND_OPEN_H);
@@ -979,16 +1040,36 @@ namespace DynamicIslandWindows
 
         private bool IsValidHexColor(string hex)
         {
-            if (string.IsNullOrEmpty(hex)) return false;
-            if (hex[0] != '#') return false;
-            return hex.Length == 7 || hex.Length == 9;
+            if (string.IsNullOrEmpty(hex) || hex[0] != '#') return false;
+            if (hex.Length != 7 && hex.Length != 9) return false;
+            
+            for (int i = 1; i < hex.Length; i++)
+            {
+                char c = hex[i];
+                if (!((c >= '0' && c <= '9') ||
+                      (c >= 'A' && c <= 'F') ||
+                      (c >= 'a' && c <= 'f')))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private string GetConfigPath()
+        {
+            string folder = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DynamicIslandWindows");
+            Directory.CreateDirectory(folder);
+            return Path.Combine(folder, "island_config.json");
         }
 
         private void LoadConfig()
         {
             try
             {
-                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "island_config.json");
+                string path = GetConfigPath();
                 if (File.Exists(path))
                 {
                     string json = File.ReadAllText(path);
@@ -1019,7 +1100,7 @@ namespace DynamicIslandWindows
         {
             try
             {
-                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "island_config.json");
+                string path = GetConfigPath();
                 string json = JsonSerializer.Serialize(_config);
                 File.WriteAllText(path, json);
             }
@@ -1075,7 +1156,7 @@ namespace DynamicIslandWindows
 
                     txtAccentHex.Text = hexColor;
                     UpdateColorSelectionUI(hexColor);
-                    InitializeTogglesUI();
+                    if (!_isInitializing) InitializeTogglesUI();
                 }
             }
             catch (Exception ex)
@@ -1116,7 +1197,7 @@ namespace DynamicIslandWindows
                     this.Resources["IslandInactiveBrush"] = new SolidColorBrush(color);
                     txtInactHex.Text = hexColor;
                     UpdateInactSelectionUI(hexColor);
-                    InitializeTogglesUI();
+                    if (!_isInitializing) InitializeTogglesUI();
                 }
             }
             catch (Exception ex)
@@ -1477,14 +1558,36 @@ namespace DynamicIslandWindows
                 success = await _hardwareService.ConnectToNetworkAsync(net.RawNetwork, password);
             }
 
+            wifiListContainer.Children.Clear();
             if (success)
             {
-                MessageBox.Show($"Ligado com sucesso a \"{net.Ssid}\"!", "Wi-Fi", MessageBoxButton.OK, MessageBoxImage.Information);
+                var txtSuccess = new TextBlock
+                {
+                    Style = this.Resources["FluentText"] as Style,
+                    Text = $"Ligado a \"{net.Ssid}\"!",
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Color.FromRgb(0x10, 0x7C, 0x41)),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 40, 0, 0)
+                };
+                wifiListContainer.Children.Add(txtSuccess);
             }
             else
             {
-                MessageBox.Show($"Não foi possível ligar a \"{net.Ssid}\". Verifique a palavra-passe.", "Erro Wi-Fi", MessageBoxButton.OK, MessageBoxImage.Error);
+                var txtError = new TextBlock
+                {
+                    Style = this.Resources["FluentText"] as Style,
+                    Text = $"Erro ao ligar a \"{net.Ssid}\".",
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Color.FromRgb(0xE8, 0x11, 0x23)),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 40, 0, 0)
+                };
+                wifiListContainer.Children.Add(txtError);
             }
+            AdjustWifiPanelHeight();
+
+            await Task.Delay(3000);
 
             _ = RefreshWifiListAsync();
         }
@@ -1516,8 +1619,8 @@ namespace DynamicIslandWindows
             miniIslandPanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
             double miniHeight = miniIslandPanel.DesiredSize.Height;
 
-            // Altura final = wifiHeight + miniHeight + separador (10) + margem do border (12*2 = 24)
-            double totalHeight = wifiHeight + miniHeight + 34;
+            // Altura final = wifiHeight + miniHeight + separador (6px) + padding (13px) = 19px
+            double totalHeight = wifiHeight + miniHeight + 19;
 
             // Limita ao tamanho máximo do painel aberto
             totalHeight = Math.Min(totalHeight, ISLAND_OPEN_H);

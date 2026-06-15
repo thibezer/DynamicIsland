@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Management;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using NAudio.CoreAudioApi;
 using Windows.Devices.Radios;
@@ -17,66 +18,25 @@ namespace DynamicIslandWindows.Services
         private const uint KEYEVENTF_KEYDOWN = 0x0000;
         private const uint KEYEVENTF_KEYUP   = 0x0002;
 
-        private MMDeviceEnumerator? _deviceEnumerator;
-        private MMDevice? _defaultAudioDevice;
-        private readonly object _audioLock = new();
         private bool _disposed = false;
 
         private readonly object _brightnessWriteLock = new();
         private int _pendingBrightness = -1;
         private bool _isWritingBrightness = false;
-
-        private MMDevice? GetDefaultAudioDevice()
-        {
-            lock (_audioLock)
-            {
-                try
-                {
-                    if (_deviceEnumerator == null)
-                    {
-                        _deviceEnumerator = new MMDeviceEnumerator();
-                    }
-                    if (_defaultAudioDevice == null)
-                    {
-                        _defaultAudioDevice = _deviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-                    }
-                    return _defaultAudioDevice;
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[AudioDevice] Erro ao obter endpoint: {ex.Message}");
-                    CleanupAudioDevice();
-                    return null;
-                }
-            }
-        }
-
-        private void CleanupAudioDevice()
-        {
-            lock (_audioLock)
-            {
-                _defaultAudioDevice?.Dispose();
-                _defaultAudioDevice = null;
-                _deviceEnumerator?.Dispose();
-                _deviceEnumerator = null;
-            }
-        }
+        private readonly CancellationTokenSource _cts = new();
+        private WiFiAdapter? _wifiAdapter;
 
         public int GetCurrentVolume()
         {
             try
             {
-                var device = GetDefaultAudioDevice();
-                if (device != null)
-                {
-                    return (int)Math.Round(device.AudioEndpointVolume.MasterVolumeLevelScalar * 100);
-                }
-                return 50;
+                using var enumerator = new MMDeviceEnumerator();
+                using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                return (int)Math.Round(device.AudioEndpointVolume.MasterVolumeLevelScalar * 100);
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[VolumeGet] {ex.Message}");
-                CleanupAudioDevice();
                 return 50;
             }
         }
@@ -85,16 +45,13 @@ namespace DynamicIslandWindows.Services
         {
             try
             {
-                var device = GetDefaultAudioDevice();
-                if (device != null)
-                {
-                    device.AudioEndpointVolume.MasterVolumeLevelScalar = Math.Clamp(volume / 100f, 0f, 1f);
-                }
+                using var enumerator = new MMDeviceEnumerator();
+                using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                device.AudioEndpointVolume.MasterVolumeLevelScalar = Math.Clamp(volume / 100f, 0f, 1f);
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[VolumeSet] {ex.Message}");
-                CleanupAudioDevice();
             }
         }
 
@@ -102,13 +59,13 @@ namespace DynamicIslandWindows.Services
         {
             try
             {
-                var device = GetDefaultAudioDevice();
-                return device?.AudioEndpointVolume.Mute ?? false;
+                using var enumerator = new MMDeviceEnumerator();
+                using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                return device.AudioEndpointVolume.Mute;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[VolumeMutedGet] {ex.Message}");
-                CleanupAudioDevice();
                 return false;
             }
         }
@@ -117,16 +74,13 @@ namespace DynamicIslandWindows.Services
         {
             try
             {
-                var device = GetDefaultAudioDevice();
-                if (device != null)
-                {
-                    device.AudioEndpointVolume.Mute = !device.AudioEndpointVolume.Mute;
-                }
+                using var enumerator = new MMDeviceEnumerator();
+                using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                device.AudioEndpointVolume.Mute = !device.AudioEndpointVolume.Mute;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[VolumeMuteToggle] {ex.Message}");
-                CleanupAudioDevice();
             }
         }
 
@@ -168,17 +122,22 @@ namespace DynamicIslandWindows.Services
                 _isWritingBrightness = true;
             }
 
-            // BLINDAGEM: Não bloqueia o arrastar da barra no HTML / UI e executa de forma serializada coalescida
+            var token = _cts.Token;
             Task.Run(() =>
             {
                 while (true)
                 {
+                    if (token.IsCancellationRequested)
+                    {
+                        break;
+                    }
+
                     int targetValue;
                     lock (_brightnessWriteLock)
                     {
                         targetValue = _pendingBrightness;
                         _pendingBrightness = -1;
-                        if (targetValue == -1)
+                        if (targetValue == -1 || token.IsCancellationRequested)
                         {
                             _isWritingBrightness = false;
                             break;
@@ -192,6 +151,7 @@ namespace DynamicIslandWindows.Services
                         using var instances = searcher.Get();
                         foreach (ManagementObject o in instances)
                         {
+                            if (token.IsCancellationRequested) break;
                             using (o)
                             {
                                 o.InvokeMethod("WmiSetBrightness", new object[] { 1, target });
@@ -203,7 +163,7 @@ namespace DynamicIslandWindows.Services
                         Debug.WriteLine($"[Brightness] Erro ao gravar brilho: {ex.Message}"); 
                     }
                 }
-            });
+            }, token);
         }
 
         public async Task HandleToggleAsync(string setting, bool state)
@@ -402,20 +362,23 @@ namespace DynamicIslandWindows.Services
                     return list;
                 }
 
-                var deviceSelector = WiFiAdapter.GetDeviceSelector();
-                var devices = await DeviceInformation.FindAllAsync(deviceSelector);
-                if (devices.Count == 0)
+                if (_wifiAdapter == null)
                 {
-                    Debug.WriteLine("[WiFi] Nenhum adaptador Wi-Fi encontrado no sistema.");
-                    return list;
+                    var deviceSelector = WiFiAdapter.GetDeviceSelector();
+                    var devices = await DeviceInformation.FindAllAsync(deviceSelector);
+                    if (devices.Count == 0)
+                    {
+                        Debug.WriteLine("[WiFi] Nenhum adaptador Wi-Fi encontrado no sistema.");
+                        return list;
+                    }
+                    _wifiAdapter = await WiFiAdapter.FromIdAsync(devices[0].Id);
                 }
 
-                var adapter = await WiFiAdapter.FromIdAsync(devices[0].Id);
-                await adapter.ScanAsync();
+                await _wifiAdapter.ScanAsync();
 
-                if (adapter.NetworkReport != null)
+                if (_wifiAdapter.NetworkReport != null)
                 {
-                    foreach (var net in adapter.NetworkReport.AvailableNetworks)
+                    foreach (var net in _wifiAdapter.NetworkReport.AvailableNetworks)
                     {
                         if (string.IsNullOrEmpty(net.Ssid)) continue;
                         list.Add(new WiFiNetworkInfo
@@ -441,12 +404,7 @@ namespace DynamicIslandWindows.Services
             try
             {
                 if (rawNetwork is not WiFiAvailableNetwork net) return false;
-
-                var deviceSelector = WiFiAdapter.GetDeviceSelector();
-                var devices = await DeviceInformation.FindAllAsync(deviceSelector);
-                if (devices.Count == 0) return false;
-
-                var adapter = await WiFiAdapter.FromIdAsync(devices[0].Id);
+                if (_wifiAdapter == null) return false;
                 
                 var credential = new Windows.Security.Credentials.PasswordCredential();
                 if (!string.IsNullOrEmpty(password))
@@ -454,7 +412,7 @@ namespace DynamicIslandWindows.Services
                     credential.Password = password;
                 }
 
-                var connectionResult = await adapter.ConnectAsync(net, WiFiReconnectionKind.Automatic, credential);
+                var connectionResult = await _wifiAdapter.ConnectAsync(net, WiFiReconnectionKind.Automatic, credential);
                 return connectionResult.ConnectionStatus == WiFiConnectionStatus.Success;
             }
             catch (Exception ex)
@@ -468,7 +426,12 @@ namespace DynamicIslandWindows.Services
         {
             if (_disposed) return;
             _disposed = true;
-            CleanupAudioDevice();
+            try
+            {
+                _cts.Cancel();
+                _cts.Dispose();
+            }
+            catch { }
             GC.SuppressFinalize(this);
         }
     }
