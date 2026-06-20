@@ -60,7 +60,14 @@ namespace DynamicIslandWindows.Services
             catch (COMException comEx)
             {
                 Debug.WriteLine($"[Excel COM] {comEx.Message}");
-                ShowExcelError("Erro de comunicação com o Excel.\n\nCertifique-se de que a célula não está em modo de edição.");
+                if (comEx.ErrorCode == -2147221005) // 0x800401E3 MK_E_UNAVAILABLE (Excel não está aberto)
+                {
+                    ShowExcelError("Nenhuma janela ativa do Excel foi encontrada.\n\nPor favor, abra o Excel e selecione uma célula antes de exportar.");
+                }
+                else
+                {
+                    ShowExcelError("Erro de comunicação com o Excel.\n\nCertifique-se de que a célula não está em modo de edição.");
+                }
             }
             catch (Exception ex)
             {

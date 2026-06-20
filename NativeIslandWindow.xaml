@@ -111,10 +111,10 @@
                                 
                                 <!-- Botão invisível de arrasto (Thumb) com área de colisão maior de 24x24 para arrastar mais fácil -->
                                 <Track.Thumb>
-                                    <Thumb x:Name="PART_Thumb" Width="24" Height="24" Focusable="False">
+                                    <Thumb x:Name="PART_Thumb" Width="0" Height="24" Focusable="False">
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="Thumb">
-                                                <Grid Background="Transparent" Width="24" Height="24" />
+                                                <Grid Background="Transparent" Width="0" Height="24" />
                                             </ControlTemplate>
                                         </Thumb.Template>
                                     </Thumb>
@@ -160,22 +160,45 @@
                 </Setter.Value>
             </Setter>
             <Style.Triggers>
-                <!-- Mouse hover: aumenta escala em 3% de forma fluida -->
+                <!-- Mouse hover: aumenta escala em 2% (mais sutil que 3%) -->
                 <EventTrigger RoutedEvent="Mouse.MouseEnter"><BeginStoryboard><Storyboard>
-                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.03" Duration="0:0:0.12" DecelerationRatio="0.8" />
-                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.03" Duration="0:0:0.12" DecelerationRatio="0.8" /></Storyboard></BeginStoryboard></EventTrigger>
-                <!-- Mouse leave: restaura escala padrão suavemente -->
+                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.02" Duration="0:0:0.15">
+                        <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.02" Duration="0:0:0.15">
+                        <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                </Storyboard></BeginStoryboard></EventTrigger>
+
+                <!-- Mouse leave: restaura com curva suave -->
                 <EventTrigger RoutedEvent="Mouse.MouseLeave"><BeginStoryboard><Storyboard>
-                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.0" Duration="0:0:0.18" DecelerationRatio="0.8" />
-                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.0" Duration="0:0:0.18" DecelerationRatio="0.8" /></Storyboard></BeginStoryboard></EventTrigger>
-                <!-- Clique: encolhe a escala para 94%, simulando o feedback físico de pressionar -->
+                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.0" Duration="0:0:0.20">
+                        <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.0" Duration="0:0:0.20">
+                        <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                </Storyboard></BeginStoryboard></EventTrigger>
+
+                <!-- Press: escala para 96% (mais sutil) com snap rápido -->
                 <EventTrigger RoutedEvent="UIElement.PreviewMouseLeftButtonDown"><BeginStoryboard><Storyboard>
-                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="0.94" Duration="0:0:0.07" DecelerationRatio="0.8" />
-                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="0.94" Duration="0:0:0.07" DecelerationRatio="0.8" /></Storyboard></BeginStoryboard></EventTrigger>
-                <!-- Soltar clique: expande de volta para escala de hover -->
+                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="0.96" Duration="0:0:0.06">
+                        <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="0.96" Duration="0:0:0.06">
+                        <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                </Storyboard></BeginStoryboard></EventTrigger>
+
+                <!-- Release: bounce back com BackEase (overshoot sutil) -->
                 <EventTrigger RoutedEvent="UIElement.PreviewMouseLeftButtonUp"><BeginStoryboard><Storyboard>
-                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.03" Duration="0:0:0.09" DecelerationRatio="0.8" />
-                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.03" Duration="0:0:0.09" DecelerationRatio="0.8" /></Storyboard></BeginStoryboard></EventTrigger>
+                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.02" Duration="0:0:0.20">
+                        <DoubleAnimation.EasingFunction><BackEase EasingMode="EaseOut" Amplitude="0.4"/></DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.02" Duration="0:0:0.20">
+                        <DoubleAnimation.EasingFunction><BackEase EasingMode="EaseOut" Amplitude="0.4"/></DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                </Storyboard></BeginStoryboard></EventTrigger>
             </Style.Triggers>
         </Style>
 
@@ -376,11 +399,29 @@
                         
                         <TextBlock Style="{StaticResource FluentText}" Text="Redes Wi-Fi" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                         
+                        <!-- Botão de Refresh do Wi-Fi -->
+                        <Border Style="{StaticResource TactileBorderButtonStyle}" 
+                                Name="btnWifiRefresh" Width="30" Height="30" CornerRadius="15" 
+                                Background="{DynamicResource IslandInactiveBrush}" 
+                                HorizontalAlignment="Right" Margin="0,0,52,0" Cursor="Hand" 
+                                MouseLeftButtonDown="WifiRefresh_Click">
+                            <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE72C;" FontSize="12" 
+                                       Name="icoWifiRefresh" RenderTransformOrigin="0.5,0.5">
+                                <TextBlock.RenderTransform>
+                                    <RotateTransform Angle="0" />
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                        </Border>
+
                         <!-- Switch Ligar/Desligar Wi-Fi -->
                         <Border Style="{StaticResource TactileBorderButtonStyle}" Name="btnWifiToggleHeader" Width="44" Height="24" CornerRadius="12" Background="{DynamicResource IslandInactiveBrush}" HorizontalAlignment="Right" Cursor="Hand" MouseLeftButtonDown="WifiToggleHeader_Click">
                             <Grid>
-                                <!-- Uma pílula indicadora do switch -->
-                                <Border Name="wifiSwitchIndicator" Width="16" Height="16" CornerRadius="8" Background="White" HorizontalAlignment="Left" Margin="4,0" />
+                                <!-- Uma pílula indicadora do switch com TranslateTransform para deslizar -->
+                                <Border Name="wifiSwitchIndicator" Width="16" Height="16" CornerRadius="8" Background="White" HorizontalAlignment="Left" Margin="4,0">
+                                    <Border.RenderTransform>
+                                        <TranslateTransform X="0" />
+                                    </Border.RenderTransform>
+                                </Border>
                             </Grid>
                         </Border>
                     </Grid>

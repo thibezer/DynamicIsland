@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Management;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -112,6 +114,7 @@ namespace DynamicIslandWindows.Services
 
         public void SetBrightness(int brightness)
         {
+            if (_disposed) return;
             lock (_brightnessWriteLock)
             {
                 _pendingBrightness = Math.Clamp(brightness, 0, 100);
@@ -396,7 +399,14 @@ namespace DynamicIslandWindows.Services
             {
                 Debug.WriteLine($"[WiFiScan] {ex.Message}");
             }
-            return list;
+
+            // Deduplicação: agrupa por SSID e mantém o AP com melhor sinal
+            var deduped = list
+                .GroupBy(n => n.Ssid)
+                .Select(g => g.OrderByDescending(n => n.SignalBars).First())
+                .OrderByDescending(n => n.SignalBars)
+                .ToList();
+            return deduped;
         }
 
         public async Task<bool> ConnectToNetworkAsync(object rawNetwork, string password)
@@ -420,6 +430,30 @@ namespace DynamicIslandWindows.Services
                 Debug.WriteLine($"[WiFiConnect] {ex.Message}");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Retorna o SSID da rede Wi-Fi atualmente conectada, ou null se desconectado.
+        /// </summary>
+        public string? GetConnectedNetworkSsid()
+        {
+            try
+            {
+                if (_wifiAdapter?.NetworkAdapter != null)
+                {
+                    var profileTask = _wifiAdapter.NetworkAdapter.GetConnectedProfileAsync().AsTask();
+                    if (profileTask.Wait(TimeSpan.FromMilliseconds(500)))
+                    {
+                        var profile = profileTask.Result;
+                        return profile?.ProfileName;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WiFiConnected] {ex.Message}");
+            }
+            return null;
         }
 
         public void Dispose()

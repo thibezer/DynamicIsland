@@ -72,9 +72,9 @@ namespace DynamicIslandWindows
         }
 
         // ─── Constantes de Layout ─────────────────────────────────────────────────
-        private const int  HOVER_TICKS_TO_OPEN  = 4;
-        private const int  HOVER_TICKS_TO_CLOSE = 3;
-        private const int  HOVER_TIMER_MS        = 100;
+        private const int  HOVER_OPEN_DELAY_MS   = 400;
+        private const int  HOVER_CLOSE_DELAY_MS  = 300;
+        private const int  DROPZONE_CLOSE_DELAY_MS = 3000;
         private const int  MEDIA_TIMER_S         = 10;
         private const int  DRAGLEAVE_DELAY_MS    = 150;
 
@@ -86,15 +86,19 @@ namespace DynamicIslandWindows
         private const double DROPZONE_H          = 200;
 
         // ─── Estado Interno ───────────────────────────────────────────────────────
-        private DispatcherTimer? _hoverTimer;
+        private DispatcherTimer? _openDelayTimer;
+        private DispatcherTimer? _closeDelayTimer;
+        private DispatcherTimer? _fullscreenTimer;
         private DispatcherTimer? _mediaTimer;
         private DispatcherTimer? _dragLeaveTimer;
+        private DispatcherTimer? _wifiTransitionTimer;
+        private bool _isWifiPanelTransitioning = false;
+        private DispatcherTimer? _wifiAutoRefreshTimer;
 
         private bool   _isIslandOpen       = false;
         private bool   _isDropZoneActive   = false;
         private bool   _isDraggingFile     = false;
         private string _currentMode        = "notification";
-        private int    _hoverCounter       = 0;
         private string? _pendingDropFilePath = null;
         private double _dpiX = 1.0, _dpiY = 1.0;
         private int _mediaUpdateInProgress = 0;
@@ -102,9 +106,6 @@ namespace DynamicIslandWindows
         private double _miniBaseHeightLogica = 43; 
         private IntPtr _hwnd = IntPtr.Zero;
         private HwndSource? _hwndSource;
-        private int _topmostTickCounter = 0;
-        private const int TOPMOST_REFRESH_TICKS = 10;
-        private int _fullScreenCheckCounter = 0;
         private bool _isFullScreenCached = false;
         private bool _isInitializing = true;
         private double _cachedCompactWidth = -1;
@@ -208,7 +209,7 @@ namespace DynamicIslandWindows
             _isInitializing = false;
             InitializeTogglesUI();
             _isFullScreenCached = IsFullScreen();
-            SetupHoverTimer();
+            SetupTimersAndEvents();
 
             await _mediaService.InitializeAsync();
             await UpdateMediaInfoAsync();
@@ -216,6 +217,7 @@ namespace DynamicIslandWindows
             _mediaTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(MEDIA_TIMER_S) };
             _mediaTimer.Tick += async (s, ev) => await UpdateMediaInfoAsync();
             _mediaTimer.Start();
+            StartIdleBreathingAnimation();
         }
 
         private void InitializeTogglesUI()
@@ -269,29 +271,88 @@ namespace DynamicIslandWindows
             }
         }
 
-        // ─── Hover Engine (Hit Test ultra leve em coordenadas lógicas) ─────────
-        private void SetupHoverTimer()
+        // ─── Mecanismo de Hover Reativo e Tela Cheia sem Polling ───────────
+        private void SetupTimersAndEvents()
         {
-            _hoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(HOVER_TIMER_MS) };
-            _hoverTimer.Tick += HoverTimer_Tick;
-            _hoverTimer.Start();
+            _openDelayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(HOVER_OPEN_DELAY_MS) };
+            _openDelayTimer.Tick += OpenDelayTimer_Tick;
+
+            _closeDelayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(HOVER_CLOSE_DELAY_MS) };
+            _closeDelayTimer.Tick += CloseDelayTimer_Tick;
+
+            _fullscreenTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            _fullscreenTimer.Tick += FullscreenTimer_Tick;
+            _fullscreenTimer.Start();
+
+            islandBorder.MouseEnter += IslandBorder_MouseEnter;
+            islandBorder.MouseLeave += IslandBorder_MouseLeave;
         }
 
-        private void HoverTimer_Tick(object? sender, EventArgs e)
+        private void IslandBorder_MouseEnter(object sender, MouseEventArgs e)
         {
-            if (++_fullScreenCheckCounter >= 5)
+            if (_isFullScreenCached) return;
+
+            _closeDelayTimer?.Stop();
+
+            if (!_isIslandOpen && _currentMode == "notification" && !_isDraggingFile && !_isDropZoneActive)
             {
-                _fullScreenCheckCounter = 0;
-                _isFullScreenCached = IsFullScreen();
+                _openDelayTimer?.Stop();
+                _openDelayTimer?.Start();
             }
+        }
+
+        private void IslandBorder_MouseLeave(object sender, MouseEventArgs e)
+        {
+            _openDelayTimer?.Stop();
+
+            // PROTEÇÃO: Se o painel Wi-Fi está em transição, não inicia o timer de fechamento
+            if (_isWifiPanelTransitioning) return;
+
+            if (_isIslandOpen || _isDropZoneActive)
+            {
+                _closeDelayTimer?.Stop();
+                if (_closeDelayTimer != null)
+                {
+                    _closeDelayTimer.Interval = _isDropZoneActive 
+                        ? TimeSpan.FromMilliseconds(DROPZONE_CLOSE_DELAY_MS) 
+                        : TimeSpan.FromMilliseconds(HOVER_CLOSE_DELAY_MS);
+                    _closeDelayTimer.Start();
+                }
+            }
+        }
+
+        private void OpenDelayTimer_Tick(object? sender, EventArgs e)
+        {
+            _openDelayTimer?.Stop();
+            if (islandBorder.IsMouseOver && !_isFullScreenCached)
+            {
+                OpenIsland();
+            }
+        }
+
+        private void CloseDelayTimer_Tick(object? sender, EventArgs e)
+        {
+            _closeDelayTimer?.Stop();
+            if (!islandBorder.IsMouseOver)
+            {
+                if (_isIslandOpen) CloseIsland();
+                if (_isDropZoneActive) DeactivateDropMode();
+            }
+        }
+
+        private void FullscreenTimer_Tick(object? sender, EventArgs e)
+        {
+            bool wasFullScreen = _isFullScreenCached;
+            _isFullScreenCached = IsFullScreen();
 
             if (_isFullScreenCached)
             {
                 if (this.Visibility != Visibility.Collapsed)
                 {
                     this.Visibility = Visibility.Collapsed;
+                    if (_isIslandOpen) CloseIsland();
+                    if (_isDropZoneActive) DeactivateDropMode();
                 }
-                return; // Pula hit-test, mouse tracking e topmost refreshes em fullscreen
             }
             else
             {
@@ -299,50 +360,7 @@ namespace DynamicIslandWindows
                 {
                     this.Visibility = Visibility.Visible;
                 }
-            }
-
-            if (this.Visibility == Visibility.Visible)
-            {
-                if (++_topmostTickCounter >= TOPMOST_REFRESH_TICKS)
-                {
-                    _topmostTickCounter = 0;
-                    EnsureTopmost();
-                }
-            }
-
-            // Captura posição do rato relativa à janela (Independente de DPI ou resoluções complexas)
-            Point mousePos = Mouse.GetPosition(this);
-            
-            // Verifica com precisão matemática se o rato está sobre o Border visível real
-            bool inZone = mousePos.X >= 10 &&
-                          mousePos.X <= 10 + islandBorder.ActualWidth &&
-                          mousePos.Y >= (this.Height - 10 - islandBorder.ActualHeight) &&
-                          mousePos.Y <= this.Height - 10;
-
-            bool wantOpen  = !_isIslandOpen && _currentMode == "notification" && inZone && !_isDraggingFile && !_isDropZoneActive;
-            bool wantClose = (_isIslandOpen || _isDropZoneActive) && !inZone;
-
-            if (wantOpen)
-            {
-                if (++_hoverCounter >= HOVER_TICKS_TO_OPEN)
-                {
-                    OpenIsland();
-                    _hoverCounter = 0;
-                }
-            }
-            else if (wantClose)
-            {
-                int ticksToClose = _isDropZoneActive ? 30 : HOVER_TICKS_TO_CLOSE;
-                if (++_hoverCounter >= ticksToClose)
-                {
-                    if (_isIslandOpen) CloseIsland();
-                    if (_isDropZoneActive) DeactivateDropMode();
-                    _hoverCounter = 0;
-                }
-            }
-            else
-            {
-                _hoverCounter = 0;
+                EnsureTopmost();
             }
         }
 
@@ -360,11 +378,46 @@ namespace DynamicIslandWindows
         // Executado diretamente pela GPU, sem recalcular buffers de janela do SO.
         private void AnimateBorder(double targetWidth, double targetHeight, Action? onCompleted = null)
         {
-            var duration = TimeSpan.FromMilliseconds(300);
-            var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+            // Detecta se está expandindo ou contraindo
+            bool isExpanding = targetWidth > islandBorder.ActualWidth || targetHeight > islandBorder.ActualHeight;
+            
+            // Durações diferenciadas mais ágeis e fluidas:
+            var duration = isExpanding 
+                ? TimeSpan.FromMilliseconds(340)   // Expansão: ágil e dramática
+                : TimeSpan.FromMilliseconds(260);  // Contração: snap rápido
 
-            var widthAnim = new DoubleAnimation(islandBorder.Width, targetWidth, duration) { EasingFunction = easing };
-            var heightAnim = new DoubleAnimation(islandBorder.Height, targetHeight, duration) { EasingFunction = easing };
+            // Efeito elástico sutil (overshoot na expansão, pull-back na contração)
+            IEasingFunction easing;
+            if (isExpanding)
+            {
+                // Expansão: overshoot sutil com BackEase (suave e premium, sem o tremor do ElasticEase)
+                easing = new BackEase 
+                { 
+                    EasingMode = EasingMode.EaseOut, 
+                    Amplitude = 0.3      // Overshoot sutil (30% da distância percorrida)
+                };
+            }
+            else
+            {
+                // Contração: snap limpo sem overshoot negativo excessivo
+                easing = new BackEase 
+                { 
+                    EasingMode = EasingMode.EaseOut, 
+                    Amplitude = 0.12      // Pull-back sutil
+                };
+            }
+
+            var widthAnim = new DoubleAnimation(islandBorder.ActualWidth, targetWidth, duration) 
+            { 
+                EasingFunction = easing,
+                FillBehavior = FillBehavior.HoldEnd
+            };
+            
+            var heightAnim = new DoubleAnimation(islandBorder.ActualHeight, targetHeight, duration) 
+            { 
+                EasingFunction = easing,
+                FillBehavior = FillBehavior.HoldEnd
+            };
 
             if (onCompleted != null)
             {
@@ -377,9 +430,11 @@ namespace DynamicIslandWindows
 
         private void OpenIsland()
         {
+            EnsureTopmost();
             if (_isDropZoneActive) DeactivateDropMode();
             _isIslandOpen = true;
-            _hoverCounter = 0;
+
+            StopIdleBreathingAnimation();
 
             if (mainContentGrid != null)
             {
@@ -392,7 +447,9 @@ namespace DynamicIslandWindows
             miniIslandPanel.Visibility = Visibility.Visible;
             islandSeparator.Visibility = Visibility.Visible;
             dropZonePanel.Visibility = Visibility.Collapsed;
-            expandedIslandPanel.Visibility = Visibility.Visible;
+
+            // Painel expandido entra com fade + slide APÓS delay para sincronizar com o border
+            AnimatePanelIn(expandedIslandPanel, slideDistance: 20, delayMs: 100);
 
             AnimateBorder(ISLAND_OPEN_W, ISLAND_OPEN_H);
         }
@@ -400,14 +457,18 @@ namespace DynamicIslandWindows
         private void CloseIsland()
         {
             _isIslandOpen = false;
-            _hoverCounter = 0;
+            _isWifiPanelTransitioning = false; // Reseta a proteção ao fechar
+            _wifiTransitionTimer?.Stop();
+            StopWifiAutoRefresh();
 
             if (txtMiniTitle != null) txtMiniTitle.MaxWidth = 220;
             if (txtMiniSubtitle != null) txtMiniSubtitle.MaxWidth = 220;
 
-            expandedIslandPanel.Visibility = Visibility.Collapsed;
-            appearancePanel.Visibility = Visibility.Collapsed;
-            wifiPanel.Visibility = Visibility.Collapsed;
+            // Fade-out rápido dos painéis expandidos (não espera terminar)
+            AnimatePanelOut(expandedIslandPanel);
+            AnimatePanelOut(appearancePanel);
+            AnimatePanelOut(wifiPanel);
+
             wifiPasswordPanel.Visibility = Visibility.Collapsed;
             islandSeparator.Visibility = Visibility.Collapsed;
             dropZonePanel.Visibility = Visibility.Collapsed;
@@ -420,11 +481,181 @@ namespace DynamicIslandWindows
                 {
                     mainContentGrid.VerticalAlignment = VerticalAlignment.Center;
                 }
+                StartIdleBreathingAnimation();
             });
+        }
+
+        // ─── Utilitários de Animação Avançada ────────────────────────────────────
+
+        /// <summary>
+        /// Faz um painel aparecer com fade + slide de baixo para cima (como iOS)
+        /// </summary>
+        private void AnimatePanelIn(FrameworkElement panel, double slideDistance = 15, int delayMs = 80)
+        {
+            panel.Visibility = Visibility.Visible;
+            panel.Opacity = 0;
+            
+            // Configura TranslateTransform se não existir
+            if (!(panel.RenderTransform is TranslateTransform))
+                panel.RenderTransform = new TranslateTransform();
+            
+            var translate = (TranslateTransform)panel.RenderTransform;
+            translate.Y = slideDistance;
+            
+            var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                BeginTime = TimeSpan.FromMilliseconds(delayMs)
+            };
+            
+            var slideUp = new DoubleAnimation(slideDistance, 0, TimeSpan.FromMilliseconds(280))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                BeginTime = TimeSpan.FromMilliseconds(delayMs)
+            };
+            
+            panel.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+            translate.BeginAnimation(TranslateTransform.YProperty, slideUp);
+        }
+
+        /// <summary>
+        /// Faz um painel desaparecer com fade-out rápido
+        /// </summary>
+        private void AnimatePanelOut(FrameworkElement panel, Action? onCompleted = null)
+        {
+            var fadeOut = new DoubleAnimation(panel.Opacity, 0, TimeSpan.FromMilliseconds(120))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+            };
+            
+            fadeOut.Completed += (s, e) =>
+            {
+                panel.Visibility = Visibility.Collapsed;
+                panel.Opacity = 1; // Reset para próxima abertura
+                onCompleted?.Invoke();
+            };
+            
+            panel.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+        }
+
+        /// <summary>
+        /// Faz uma pulsação sutil na ilha no modo compacto ocioso (breathing glow)
+        /// </summary>
+        private void StartIdleBreathingAnimation()
+        {
+            if (_isIslandOpen || _isDropZoneActive) return;
+
+            var breathGlow = new DropShadowEffect
+            {
+                Color = _themeColor,
+                ShadowDepth = 0,
+                Opacity = 0,
+                BlurRadius = 8
+            };
+            
+            if (islandBorder.Effect == null)
+            {
+                islandBorder.Effect = breathGlow;
+                
+                var breathAnim = new DoubleAnimation(0, 0.15, TimeSpan.FromSeconds(3))
+                {
+                    AutoReverse = true,
+                    RepeatBehavior = RepeatBehavior.Forever,
+                    EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+                };
+                breathGlow.BeginAnimation(DropShadowEffect.OpacityProperty, breathAnim);
+            }
+        }
+
+        private void StopIdleBreathingAnimation()
+        {
+            if (islandBorder.Effect is DropShadowEffect glow && glow.Opacity < 0.2)
+            {
+                islandBorder.Effect = null;
+            }
+        }
+
+        /// <summary>
+        /// Faz um crossfade e scale suave na imagem de thumbnail do tocador de mídia
+        /// </summary>
+        private void AnimateThumbnailChange(BitmapImage newThumbnail)
+        {
+            var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(100));
+            fadeOut.Completed += (s, e) =>
+            {
+                miniThumbBorder.Background = new ImageBrush(newThumbnail) 
+                { 
+                    Stretch = Stretch.UniformToFill 
+                };
+                miniThumbBorder.Visibility = Visibility.Visible;
+                txtMiniIcon.Visibility = Visibility.Collapsed;
+                
+                miniThumbBorder.RenderTransformOrigin = new Point(0.5, 0.5);
+                miniThumbBorder.RenderTransform = new ScaleTransform(0.85, 0.85);
+                
+                var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                var scaleX = new DoubleAnimation(0.85, 1.0, TimeSpan.FromMilliseconds(300))
+                {
+                    EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.2 }
+                };
+                var scaleY = new DoubleAnimation(0.85, 1.0, TimeSpan.FromMilliseconds(300))
+                {
+                    EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.2 }
+                };
+                
+                miniThumbBorder.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+                ((ScaleTransform)miniThumbBorder.RenderTransform).BeginAnimation(ScaleTransform.ScaleXProperty, scaleX);
+                ((ScaleTransform)miniThumbBorder.RenderTransform).BeginAnimation(ScaleTransform.ScaleYProperty, scaleY);
+            };
+            
+            miniThumbBorder.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+        }
+
+        /// <summary>
+        /// Faz uma transição de texto com slide vertical elegante ao mudar títulos ou legendas
+        /// </summary>
+        private void AnimateTextChange(TextBlock textBlock, string newText)
+        {
+            if (textBlock.Text == newText) return;
+            
+            if (!(textBlock.RenderTransform is TranslateTransform))
+                textBlock.RenderTransform = new TranslateTransform();
+            
+            var translate = (TranslateTransform)textBlock.RenderTransform;
+            
+            // Fase 1: Slide-out + fade-out do texto atual
+            var slideOut = new DoubleAnimation(0, -8, TimeSpan.FromMilliseconds(100));
+            var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(100));
+            
+            fadeOut.Completed += (s, e) =>
+            {
+                textBlock.Text = newText;
+                translate.Y = 8; // Posiciona abaixo
+                
+                // Fase 2: Slide-in + fade-in do novo texto
+                var slideIn = new DoubleAnimation(8, 0, TimeSpan.FromMilliseconds(200))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                
+                translate.BeginAnimation(TranslateTransform.YProperty, slideIn);
+                textBlock.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+            };
+            
+            translate.BeginAnimation(TranslateTransform.YProperty, slideOut);
+            textBlock.BeginAnimation(UIElement.OpacityProperty, fadeOut);
         }
 
         private void ActivateDropMode()
         {
+            EnsureTopmost();
             if (_isDropZoneActive) return;
             _isDraggingFile = _isDropZoneActive = true;
         }
@@ -446,6 +677,7 @@ namespace DynamicIslandWindows
 
         private void ShowDropPanel()
         {
+            EnsureTopmost();
             miniIslandPanel.Visibility = Visibility.Collapsed;
             expandedIslandPanel.Visibility = Visibility.Collapsed;
             dropZonePanel.Visibility = Visibility.Visible;
@@ -579,21 +811,65 @@ namespace DynamicIslandWindows
 
         private void UpdateToggleButton(Border border, TextBlock icon, bool isOn)
         {
+            Color targetBg;
+            Color targetIcon;
+            
             if (isOn)
             {
-                border.Background = new SolidColorBrush(_themeColor);
-                border.BorderBrush = new SolidColorBrush(_themeColor);
-                
-                // Escolhe ícone preto ou branco dependendo do contraste da cor do tema
+                targetBg = _themeColor;
                 double brightness = (0.299 * _themeColor.R + 0.587 * _themeColor.G + 0.114 * _themeColor.B) / 255;
-                icon.Foreground = brightness > 0.6 ? Brushes.Black : Brushes.White;
+                targetIcon = brightness > 0.6 ? Colors.Black : Colors.White;
             }
             else
             {
-                var brush = this.Resources["IslandInactiveBrush"] as Brush;
-                border.Background = brush ?? new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x20));
+                var brush = this.Resources["IslandInactiveBrush"] as SolidColorBrush;
+                targetBg = brush?.Color ?? Color.FromRgb(0x1E, 0x1E, 0x20);
+                targetIcon = Colors.White;
+            }
+
+            // Anima a cor de fundo suavemente (150ms como iOS Control Center)
+            var bgAnim = new ColorAnimation(targetBg, TimeSpan.FromMilliseconds(150))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            
+            var iconAnim = new ColorAnimation(targetIcon, TimeSpan.FromMilliseconds(150))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+
+            // Garante que o Background é SolidColorBrush animável
+            if (!(border.Background is SolidColorBrush bgBrush) || bgBrush.IsFrozen)
+            {
+                bgBrush = new SolidColorBrush(
+                    (border.Background as SolidColorBrush)?.Color ?? Colors.Transparent);
+                border.Background = bgBrush;
+            }
+            bgBrush.BeginAnimation(SolidColorBrush.ColorProperty, bgAnim);
+
+            // Garante que o Foreground do ícone é animável
+            if (!(icon.Foreground is SolidColorBrush iconBrush) || iconBrush.IsFrozen)
+            {
+                iconBrush = new SolidColorBrush(
+                    (icon.Foreground as SolidColorBrush)?.Color ?? Colors.White);
+                icon.Foreground = iconBrush;
+            }
+            iconBrush.BeginAnimation(SolidColorBrush.ColorProperty, iconAnim);
+
+            // BorderBrush do toggle
+            if (isOn)
+            {
+                if (!(border.BorderBrush is SolidColorBrush borderBrush) || borderBrush.IsFrozen)
+                {
+                    borderBrush = new SolidColorBrush(Colors.Transparent);
+                    border.BorderBrush = borderBrush;
+                }
+                borderBrush.BeginAnimation(SolidColorBrush.ColorProperty, 
+                    new ColorAnimation(_themeColor, TimeSpan.FromMilliseconds(150)));
+            }
+            else
+            {
                 border.BorderBrush = Brushes.Transparent;
-                icon.Foreground = Brushes.White;
             }
         }
 
@@ -667,7 +943,7 @@ namespace DynamicIslandWindows
                     ShowDropPanel();
                 }
             }
-            _isDraggingFile = false; _hoverCounter = -10; e.Handled = true;
+            _isDraggingFile = false; e.Handled = true;
         }
 
         private void ExcelAction_Click(object sender, MouseButtonEventArgs e)
@@ -757,17 +1033,22 @@ namespace DynamicIslandWindows
                     {
                         miniMediaControls.Visibility = Visibility.Visible;
                         
-                        txtMiniTitle.Text = state.Title;
-                        txtMiniSubtitle.Text = state.Subtitle;
+                        AnimateTextChange(txtMiniTitle, state.Title);
+                        AnimateTextChange(txtMiniSubtitle, state.Subtitle);
                         txtMiniPlayIcon.Text = expectedPlayGlyph;
 
                         if (decodedThumbnail != null)
                         {
                             try
                             {
-                                miniThumbBorder.Background = new ImageBrush(decodedThumbnail) { Stretch = Stretch.UniformToFill };
-                                miniThumbBorder.Visibility = Visibility.Visible;
-                                txtMiniIcon.Visibility = Visibility.Collapsed;
+                                if (miniThumbBorder.Background is ImageBrush brush && brush.ImageSource is BitmapImage currentImg && currentImg == decodedThumbnail)
+                                {
+                                    // Mesmo thumbnail, nada a fazer
+                                }
+                                else
+                                {
+                                    AnimateThumbnailChange(decodedThumbnail);
+                                }
                             }
                             catch (Exception imgEx)
                             {
@@ -783,8 +1064,8 @@ namespace DynamicIslandWindows
                     else
                     {
                         miniMediaControls.Visibility = Visibility.Collapsed;
-                        txtMiniTitle.Text = state.Title;
-                        txtMiniSubtitle.Text = state.Subtitle;
+                        AnimateTextChange(txtMiniTitle, state.Title);
+                        AnimateTextChange(txtMiniSubtitle, state.Subtitle);
 
                         miniThumbBorder.Background = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3C));
                         miniThumbBorder.Visibility = Visibility.Collapsed;
@@ -869,9 +1150,22 @@ namespace DynamicIslandWindows
                 if (obj != null)
                 {
                     WINDOWPOS wp = (WINDOWPOS)obj;
+                    bool modified = false;
+
                     if ((wp.flags & SWP_HIDEWINDOW) != 0 && this.Visibility == Visibility.Visible)
                     {
                         wp.flags &= ~SWP_HIDEWINDOW; wp.flags |= SWP_SHOWWINDOW;
+                        modified = true;
+                    }
+
+                    if (this.Visibility == Visibility.Visible && wp.hwndInsertAfter != HWND_TOPMOST)
+                    {
+                        wp.hwndInsertAfter = HWND_TOPMOST;
+                        modified = true;
+                    }
+
+                    if (modified)
+                    {
                         Marshal.StructureToPtr(wp, lParam, false);
                         handled = true;
                     }
@@ -917,7 +1211,9 @@ namespace DynamicIslandWindows
         private void AppearanceSettings_Click(object sender, MouseButtonEventArgs e)
         {
             e.Handled = true;
-            expandedIslandPanel.Visibility = Visibility.Collapsed;
+            
+            // Torna o painel visível temporariamente com opacidade zero para o Measure funcionar
+            appearancePanel.Opacity = 0;
             appearancePanel.Visibility = Visibility.Visible;
 
             if (mainContentGrid != null)
@@ -939,16 +1235,30 @@ namespace DynamicIslandWindows
             // Limita a altura para não exceder o limite máximo da ilha
             totalHeight = Math.Min(totalHeight, ISLAND_OPEN_H);
 
+            // Fade-out do painel atual, fade-in do próximo
+            AnimatePanelOut(expandedIslandPanel, () =>
+            {
+                AnimatePanelIn(appearancePanel, slideDistance: 12, delayMs: 0);
+            });
+
             AnimateBorder(ISLAND_OPEN_W, totalHeight);
         }
 
         private void BackToMainPanel_Click(object sender, MouseButtonEventArgs e)
         {
             e.Handled = true;
-            appearancePanel.Visibility = Visibility.Collapsed;
-            wifiPanel.Visibility = Visibility.Collapsed;
+            
+            _isWifiPanelTransitioning = false; // NOVO: Remove proteção ao sair do WiFi
+            _wifiTransitionTimer?.Stop();       // NOVO
+            StopWifiAutoRefresh();             // NOVO
+            
+            // Fade-out dos sub-painéis, fade-in do painel principal
+            AnimatePanelOut(appearancePanel);
+            AnimatePanelOut(wifiPanel);
             wifiPasswordPanel.Visibility = Visibility.Collapsed;
-            expandedIslandPanel.Visibility = Visibility.Visible;
+            
+            AnimatePanelIn(expandedIslandPanel, slideDistance: 12, delayMs: 100);
+
             if (btnWifi != null && icoWifi != null)
             {
                 UpdateToggleButton(btnWifi, icoWifi, _wifiOn);
@@ -1266,8 +1576,14 @@ namespace DynamicIslandWindows
         public void Dispose()
         {
             if (_disposed) return; _disposed = true;
-            _hoverTimer?.Stop(); _mediaTimer?.Stop(); _dragLeaveTimer?.Stop();
-            _hoverTimer = _mediaTimer = _dragLeaveTimer = null;
+            _openDelayTimer?.Stop();
+            _closeDelayTimer?.Stop();
+            _fullscreenTimer?.Stop();
+            _mediaTimer?.Stop();
+            _dragLeaveTimer?.Stop();
+            _wifiTransitionTimer?.Stop();
+            _wifiAutoRefreshTimer?.Stop();
+            _openDelayTimer = _closeDelayTimer = _fullscreenTimer = _mediaTimer = _dragLeaveTimer = _wifiTransitionTimer = _wifiAutoRefreshTimer = null;
 
             if (_mediaService != null)
             {
@@ -1330,17 +1646,41 @@ namespace DynamicIslandWindows
         {
             if (btnWifiToggleHeader == null || wifiSwitchIndicator == null) return;
             
-            if (_wifiOn)
+            // Configura TranslateTransform se necessário
+            if (!(wifiSwitchIndicator.RenderTransform is TranslateTransform))
+                wifiSwitchIndicator.RenderTransform = new TranslateTransform();
+            
+            var translate = (TranslateTransform)wifiSwitchIndicator.RenderTransform;
+            
+            // A pílula tem 44px de largura, o indicador 16px, margem 4px
+            // Posição esquerda: 0, Posição direita: 20px
+            double targetX = _wifiOn ? 20 : 0;
+            Color targetBg = _wifiOn ? _themeColor : 
+                ((this.Resources["IslandInactiveBrush"] as SolidColorBrush)?.Color 
+                 ?? Color.FromRgb(0x1E, 0x1E, 0x20));
+            
+            // Desliza com spring suave
+            var slideAnim = new DoubleAnimation(targetX, TimeSpan.FromMilliseconds(250))
             {
-                btnWifiToggleHeader.Background = new SolidColorBrush(_themeColor);
-                wifiSwitchIndicator.HorizontalAlignment = HorizontalAlignment.Right;
-            }
-            else
+                EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.3 }
+            };
+            translate.BeginAnimation(TranslateTransform.XProperty, slideAnim);
+            
+            // Anima a cor de fundo do switch container
+            if (!(btnWifiToggleHeader.Background is SolidColorBrush switchBg) || switchBg.IsFrozen)
             {
-                var brush = this.Resources["IslandInactiveBrush"] as Brush;
-                btnWifiToggleHeader.Background = brush ?? new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x20));
-                wifiSwitchIndicator.HorizontalAlignment = HorizontalAlignment.Left;
+                switchBg = new SolidColorBrush(
+                    (btnWifiToggleHeader.Background as SolidColorBrush)?.Color ?? Colors.Gray);
+                btnWifiToggleHeader.Background = switchBg;
             }
+            switchBg.BeginAnimation(SolidColorBrush.ColorProperty, 
+                new ColorAnimation(targetBg, TimeSpan.FromMilliseconds(200))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                });
+            
+            // Fixa o indicador à esquerda para que TranslateTransform funcione corretamente
+            wifiSwitchIndicator.HorizontalAlignment = HorizontalAlignment.Left;
         }
 
         private async void WifiToggleHeader_Click(object sender, MouseButtonEventArgs e)
@@ -1358,76 +1698,127 @@ namespace DynamicIslandWindows
 
         private async Task RefreshWifiListAsync()
         {
-            if (wifiListContainer == null) return;
-            wifiListContainer.Children.Clear();
-
-            if (!_wifiOn)
+            try
             {
-                var txtOff = new TextBlock
+                if (wifiListContainer == null) return;
+                wifiListContainer.Children.Clear();
+
+                if (!_wifiOn)
+                {
+                    var txtOff = new TextBlock
+                    {
+                        Style = this.Resources["FluentTextSec"] as Style,
+                        Text = "O Wi-Fi está desativado.",
+                        FontSize = 12,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Margin = new Thickness(0, 40, 0, 0)
+                    };
+                    wifiListContainer.Children.Add(txtOff);
+                    AdjustWifiPanelHeight();
+                    return;
+                }
+
+                var txtScanning = new TextBlock
                 {
                     Style = this.Resources["FluentTextSec"] as Style,
-                    Text = "O Wi-Fi está desativado.",
+                    Text = "Procurando redes...",
                     FontSize = 12,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     Margin = new Thickness(0, 40, 0, 0)
                 };
-                wifiListContainer.Children.Add(txtOff);
+                wifiListContainer.Children.Add(txtScanning);
                 AdjustWifiPanelHeight();
-                return;
-            }
 
-            var txtScanning = new TextBlock
-            {
-                Style = this.Resources["FluentTextSec"] as Style,
-                Text = "Procurando redes...",
-                FontSize = 12,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 40, 0, 0)
-            };
-            wifiListContainer.Children.Add(txtScanning);
-            AdjustWifiPanelHeight();
+                var networks = await _hardwareService.GetAvailableNetworksAsync();
 
-            var networks = await _hardwareService.GetAvailableNetworksAsync();
+                wifiListContainer.Children.Clear();
 
-            wifiListContainer.Children.Clear();
-
-            if (networks == null || networks.Count == 0)
-            {
-                var txtNone = new TextBlock
+                if (networks == null || networks.Count == 0)
                 {
-                    Style = this.Resources["FluentTextSec"] as Style,
-                    Text = "Nenhuma rede encontrada.",
-                    FontSize = 12,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Margin = new Thickness(0, 40, 0, 0)
-                };
-                wifiListContainer.Children.Add(txtNone);
-                AdjustWifiPanelHeight();
-                return;
-            }
+                    var txtNone = new TextBlock
+                    {
+                        Style = this.Resources["FluentTextSec"] as Style,
+                        Text = "Nenhuma rede encontrada.",
+                        FontSize = 12,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Margin = new Thickness(0, 40, 0, 0)
+                    };
+                    wifiListContainer.Children.Add(txtNone);
+                    AdjustWifiPanelHeight();
+                    return;
+                }
 
-            RenderWifiNetworks(networks);
-            AdjustWifiPanelHeight();
+                RenderWifiNetworks(networks);
+                AdjustWifiPanelHeight();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[RefreshWifiListError] {ex.Message}");
+            }
         }
 
         private void RenderWifiNetworks(System.Collections.Generic.List<HardwareService.WiFiNetworkInfo> networks)
         {
             if (wifiListContainer == null) return;
 
-            foreach (var net in networks)
+            string? connectedSsid = _hardwareService.GetConnectedNetworkSsid();
+
+            // Ordenar: conectada primeiro, depois por força de sinal
+            var sorted = networks
+                .OrderByDescending(n => n.Ssid == connectedSsid)
+                .ThenByDescending(n => n.SignalBars)
+                .ToList();
+
+            int index = 0;
+            foreach (var net in sorted)
             {
+                bool isConnected = net.Ssid == connectedSsid;
+                var normalBrushColor = isConnected
+                    ? Color.FromArgb(0x33, _themeColor.R, _themeColor.G, _themeColor.B)
+                    : ((this.Resources["IslandInactiveBrush"] as SolidColorBrush)?.Color ?? Color.FromRgb(0x1E, 0x1E, 0x20));
+
                 var itemBorder = new Border
                 {
-                    Background = this.Resources["IslandInactiveBrush"] as Brush ?? new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x20)),
+                    Background = new SolidColorBrush(normalBrushColor),
                     CornerRadius = new CornerRadius(8),
                     Margin = new Thickness(0, 0, 0, 4),
                     Padding = new Thickness(10, 8, 10, 8),
+                    BorderBrush = isConnected
+                        ? new SolidColorBrush(Color.FromArgb(0x66, _themeColor.R, _themeColor.G, _themeColor.B))
+                        : Brushes.Transparent,
+                    BorderThickness = isConnected ? new Thickness(1) : new Thickness(0),
                     Cursor = Cursors.Hand,
                     Tag = net
                 };
 
-                itemBorder.MouseEnter += (s, ev) => { itemBorder.Background = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x30)); };
-                itemBorder.MouseLeave += (s, ev) => { itemBorder.Background = this.Resources["IslandInactiveBrush"] as Brush ?? new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x20)); };
+                itemBorder.MouseEnter += (s, ev) => 
+                {
+                    var hoverColor = Color.FromRgb(0x2D, 0x2D, 0x30);
+                    if (!(itemBorder.Background is SolidColorBrush bg) || bg.IsFrozen)
+                    {
+                        bg = new SolidColorBrush((itemBorder.Background as SolidColorBrush)?.Color ?? Colors.Transparent);
+                        itemBorder.Background = bg;
+                    }
+                    bg.BeginAnimation(SolidColorBrush.ColorProperty, 
+                        new ColorAnimation(hoverColor, TimeSpan.FromMilliseconds(100))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+                };
+
+                itemBorder.MouseLeave += (s, ev) => 
+                {
+                    bool isConn = ((HardwareService.WiFiNetworkInfo)itemBorder.Tag).Ssid == connectedSsid;
+                    var normColor = isConn 
+                        ? Color.FromArgb(0x33, _themeColor.R, _themeColor.G, _themeColor.B)
+                        : ((this.Resources["IslandInactiveBrush"] as SolidColorBrush)?.Color ?? Color.FromRgb(0x1E, 0x1E, 0x20));
+                    
+                    if (itemBorder.Background is SolidColorBrush bg && !bg.IsFrozen)
+                    {
+                        bg.BeginAnimation(SolidColorBrush.ColorProperty, 
+                            new ColorAnimation(normColor, TimeSpan.FromMilliseconds(150))
+                            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+                    }
+                };
+                
                 itemBorder.MouseLeftButtonDown += WifiNetworkItem_Click;
 
                 var grid = new Grid();
@@ -1435,17 +1826,34 @@ namespace DynamicIslandWindows
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
+                var textStack = new StackPanel { Orientation = Orientation.Vertical, VerticalAlignment = VerticalAlignment.Center };
+                
                 var txtSsid = new TextBlock
                 {
                     Style = this.Resources["FluentText"] as Style,
                     Text = net.Ssid,
                     FontSize = 12,
-                    FontWeight = FontWeights.Medium,
+                    FontWeight = isConnected ? FontWeights.Bold : FontWeights.Medium,
                     VerticalAlignment = VerticalAlignment.Center,
                     TextTrimming = TextTrimming.CharacterEllipsis
                 };
-                Grid.SetColumn(txtSsid, 0);
-                grid.Children.Add(txtSsid);
+                textStack.Children.Add(txtSsid);
+
+                if (isConnected)
+                {
+                    var connLabel = new TextBlock
+                    {
+                        Style = this.Resources["FluentTextSec"] as Style,
+                        Text = "Conectado",
+                        FontSize = 9.5,
+                        Foreground = new SolidColorBrush(_themeColor),
+                        Margin = new Thickness(0, 2, 0, 0)
+                    };
+                    textStack.Children.Add(connLabel);
+                }
+
+                Grid.SetColumn(textStack, 0);
+                grid.Children.Add(textStack);
 
                 bool isSecure = !net.SecurityKind.Equals("None", StringComparison.OrdinalIgnoreCase) && 
                                 !net.SecurityKind.Equals("Open", StringComparison.OrdinalIgnoreCase);
@@ -1464,33 +1872,85 @@ namespace DynamicIslandWindows
                     grid.Children.Add(txtLock);
                 }
 
-                var txtSignal = new TextBlock
-                {
-                    Style = this.Resources["FluentIcon"] as Style,
-                    Text = GetWifiIconGlyph(net.SignalBars),
-                    FontSize = 14,
-                    Foreground = Brushes.White,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                Grid.SetColumn(txtSignal, 2);
-                grid.Children.Add(txtSignal);
+                var signalIndicator = CreateSignalBarsIndicator(net.SignalBars);
+                Grid.SetColumn(signalIndicator, 2);
+                grid.Children.Add(signalIndicator);
 
                 itemBorder.Child = grid;
-                wifiListContainer.Children.Add(itemBorder);
+                
+                // Adiciona com animação escalonada
+                AddNetworkItemWithAnimation(itemBorder, index++);
             }
         }
 
-        private string GetWifiIconGlyph(int bars)
+        private UIElement CreateSignalBarsIndicator(int bars)
         {
-            switch (bars)
+            var panel = new StackPanel 
+            { 
+                Orientation = Orientation.Horizontal, 
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 0, 0, 0) 
+            };
+            
+            Color[] barColors = bars switch
             {
-                case 0: return "\uE701";
-                case 1: return "\uE701";
-                case 2: return "\uE702";
-                case 3: return "\uE703";
-                case 4: return "\uE704";
-                default: return "\uE704";
+                >= 3 => new[] { 
+                    Color.FromRgb(0x10, 0x7C, 0x41), // Verde
+                    Color.FromRgb(0x10, 0x7C, 0x41), 
+                    Color.FromRgb(0x10, 0x7C, 0x41), 
+                    Color.FromRgb(0x10, 0x7C, 0x41) 
+                },
+                2 => new[] { 
+                    Color.FromRgb(0xF6, 0xA7, 0x33), // Amarelo/Accent
+                    Color.FromRgb(0xF6, 0xA7, 0x33), 
+                    Color.FromRgb(0x3A, 0x3A, 0x3C), // Inativo
+                    Color.FromRgb(0x3A, 0x3A, 0x3C) 
+                },
+                _ => new[] { 
+                    Color.FromRgb(0xE8, 0x11, 0x23), // Vermelho
+                    Color.FromRgb(0x3A, 0x3A, 0x3C), 
+                    Color.FromRgb(0x3A, 0x3A, 0x3C), 
+                    Color.FromRgb(0x3A, 0x3A, 0x3C) 
+                }
+            };
+            
+            int[] heights = { 6, 10, 14, 18 };
+            for (int i = 0; i < 4; i++)
+            {
+                panel.Children.Add(new Border
+                {
+                    Width = 3,
+                    Height = heights[i],
+                    CornerRadius = new CornerRadius(1.5),
+                    Background = new SolidColorBrush(i < bars ? barColors[i] : Color.FromRgb(0x3A, 0x3A, 0x3C)),
+                    Margin = new Thickness(1, 0, 1, 0),
+                    VerticalAlignment = VerticalAlignment.Bottom
+                });
             }
+            return panel;
+        }
+
+        private void AddNetworkItemWithAnimation(UIElement item, int index)
+        {
+            item.Opacity = 0;
+            item.RenderTransform = new TranslateTransform(0, 15);
+            wifiListContainer.Children.Add(item);
+            
+            var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200))
+            {
+                BeginTime = TimeSpan.FromMilliseconds(index * 50), // Escalonamento
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            
+            var slideUp = new DoubleAnimation(15, 0, TimeSpan.FromMilliseconds(250))
+            {
+                BeginTime = TimeSpan.FromMilliseconds(index * 50),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            
+            item.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+            ((TranslateTransform)item.RenderTransform).BeginAnimation(
+                TranslateTransform.YProperty, slideUp);
         }
 
         private void WifiNetworkItem_Click(object sender, MouseButtonEventArgs e)
@@ -1541,15 +2001,7 @@ namespace DynamicIslandWindows
             if (wifiListContainer == null) return;
 
             wifiListContainer.Children.Clear();
-            var txtConnecting = new TextBlock
-            {
-                Style = this.Resources["FluentTextSec"] as Style,
-                Text = $"A ligar a \"{net.Ssid}\"...",
-                FontSize = 12,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 40, 0, 0)
-            };
-            wifiListContainer.Children.Add(txtConnecting);
+            wifiListContainer.Children.Add(CreateConnectionSpinner(net.Ssid));
             AdjustWifiPanelHeight();
 
             bool success = false;
@@ -1559,32 +2011,7 @@ namespace DynamicIslandWindows
             }
 
             wifiListContainer.Children.Clear();
-            if (success)
-            {
-                var txtSuccess = new TextBlock
-                {
-                    Style = this.Resources["FluentText"] as Style,
-                    Text = $"Ligado a \"{net.Ssid}\"!",
-                    FontSize = 12,
-                    Foreground = new SolidColorBrush(Color.FromRgb(0x10, 0x7C, 0x41)),
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Margin = new Thickness(0, 40, 0, 0)
-                };
-                wifiListContainer.Children.Add(txtSuccess);
-            }
-            else
-            {
-                var txtError = new TextBlock
-                {
-                    Style = this.Resources["FluentText"] as Style,
-                    Text = $"Erro ao ligar a \"{net.Ssid}\".",
-                    FontSize = 12,
-                    Foreground = new SolidColorBrush(Color.FromRgb(0xE8, 0x11, 0x23)),
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Margin = new Thickness(0, 40, 0, 0)
-                };
-                wifiListContainer.Children.Add(txtError);
-            }
+            wifiListContainer.Children.Add(CreateConnectionResult(net.Ssid, success));
             AdjustWifiPanelHeight();
 
             await Task.Delay(3000);
@@ -1592,19 +2019,227 @@ namespace DynamicIslandWindows
             _ = RefreshWifiListAsync();
         }
 
+        /// <summary>
+        /// Cria um spinner circular animado para indicar progresso de conexão.
+        /// </summary>
+        private UIElement CreateConnectionSpinner(string ssid)
+        {
+            var stack = new StackPanel 
+            { 
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 30, 0, 0) 
+            };
+            
+            // Anel giratório usando um Arc/Ellipse com animação de rotação
+            var spinner = new Border
+            {
+                Width = 24, Height = 24,
+                CornerRadius = new CornerRadius(12),
+                BorderBrush = new SolidColorBrush(_themeColor),
+                BorderThickness = new Thickness(2.5),
+                Opacity = 0.8,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new RotateTransform(0),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                // Clip para criar efeito de arco parcial
+                Clip = new RectangleGeometry(new Rect(0, 0, 24, 12))
+            };
+            
+            var rotation = new DoubleAnimation(0, 360, TimeSpan.FromSeconds(1))
+            {
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+            };
+            ((RotateTransform)spinner.RenderTransform).BeginAnimation(
+                RotateTransform.AngleProperty, rotation);
+            
+            stack.Children.Add(spinner);
+            stack.Children.Add(new TextBlock
+            {
+                Style = this.Resources["FluentTextSec"] as Style,
+                Text = $"Conectando a \"{ssid}\"...",
+                FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 8, 0, 0)
+            });
+            
+            return stack;
+        }
+
+        /// <summary>
+        /// Cria um indicador de sucesso (✓ verde) ou erro (✗ vermelho) com animação.
+        /// </summary>
+        private UIElement CreateConnectionResult(string ssid, bool success)
+        {
+            var stack = new StackPanel 
+            { 
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 25, 0, 0) 
+            };
+            
+            var iconBorder = new Border
+            {
+                Width = 36, Height = 36,
+                CornerRadius = new CornerRadius(18),
+                Background = new SolidColorBrush(success 
+                    ? Color.FromArgb(0x33, 0x10, 0x7C, 0x41) 
+                    : Color.FromArgb(0x33, 0xE8, 0x11, 0x23)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new ScaleTransform(0.5, 0.5)
+            };
+            
+            iconBorder.Child = new TextBlock
+            {
+                Style = this.Resources["FluentIcon"] as Style,
+                Text = success ? "\uE73E" : "\uE711",  // Check ou X
+                FontSize = 16,
+                Foreground = new SolidColorBrush(success 
+                    ? Color.FromRgb(0x10, 0x7C, 0x41) 
+                    : Color.FromRgb(0xE8, 0x11, 0x23)),
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            
+            // Animação de escala: pop-in
+            var scaleX = new DoubleAnimation(0.5, 1.0, TimeSpan.FromMilliseconds(300))
+            { EasingFunction = new ElasticEase { Oscillations = 1, Springiness = 5 } };
+            var scaleY = new DoubleAnimation(0.5, 1.0, TimeSpan.FromMilliseconds(300))
+            { EasingFunction = new ElasticEase { Oscillations = 1, Springiness = 5 } };
+            
+            ((ScaleTransform)iconBorder.RenderTransform).BeginAnimation(ScaleTransform.ScaleXProperty, scaleX);
+            ((ScaleTransform)iconBorder.RenderTransform).BeginAnimation(ScaleTransform.ScaleYProperty, scaleY);
+            
+            stack.Children.Add(iconBorder);
+            stack.Children.Add(new TextBlock
+            {
+                Style = this.Resources["FluentText"] as Style,
+                Text = success ? $"Conectado a \"{ssid}\"" : $"Falha ao conectar a \"{ssid}\"",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(success 
+                    ? Color.FromRgb(0x10, 0x7C, 0x41) 
+                    : Color.FromRgb(0xE8, 0x11, 0x23)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 8, 0, 0)
+            });
+            
+            return stack;
+        }
+
         private void WifiMenuOpen_Click(object sender, MouseButtonEventArgs e)
         {
             e.Handled = true;
-            expandedIslandPanel.Visibility = Visibility.Collapsed;
+
+            // Torna o painel visível temporariamente com opacidade zero para o Measure funcionar
+            wifiPanel.Opacity = 0;
             wifiPanel.Visibility = Visibility.Visible;
+
+            AnimatePanelOut(expandedIslandPanel, () =>
+            {
+                AnimatePanelIn(wifiPanel, slideDistance: 12, delayMs: 0);
+            });
 
             if (mainContentGrid != null)
             {
                 mainContentGrid.VerticalAlignment = VerticalAlignment.Bottom;
             }
 
+            // ATIVA PROTEÇÃO: Impede o fechamento por MouseLeave durante 3 segundos
+            ActivateWifiTransitionProtection();
+
+            // Inicia a auto-atualização periódica das redes Wi-Fi
+            StartWifiAutoRefresh();
+
             UpdateWifiToggleHeaderUI();
             _ = RefreshWifiListAsync();
+        }
+
+        /// <summary>
+        /// Ativa uma proteção temporária de 3 segundos que impede o fechamento da ilha
+        /// por MouseLeave. Necessário porque a transição para o painel Wi-Fi redimensiona
+        /// o islandBorder, fazendo o mouse ficar fora da área e disparando MouseLeave.
+        /// </summary>
+        private void ActivateWifiTransitionProtection()
+        {
+            // Para o timer de fechamento que possa estar ativo
+            _closeDelayTimer?.Stop();
+            
+            _isWifiPanelTransitioning = true;
+
+            // Para timer anterior se estiver rodando (caso de cliques rápidos)
+            _wifiTransitionTimer?.Stop();
+
+            if (_wifiTransitionTimer == null)
+            {
+                _wifiTransitionTimer = new DispatcherTimer 
+                { 
+                    Interval = TimeSpan.FromMilliseconds(3000) 
+                };
+                _wifiTransitionTimer.Tick += (s, ev) =>
+                {
+                    _wifiTransitionTimer?.Stop();
+                    _isWifiPanelTransitioning = false;
+                    
+                    // Se o mouse já saiu da ilha durante a proteção, agora sim inicia o fechamento
+                    if (!islandBorder.IsMouseOver && _isIslandOpen)
+                    {
+                        _closeDelayTimer?.Stop();
+                        if (_closeDelayTimer != null)
+                        {
+                            _closeDelayTimer.Interval = TimeSpan.FromMilliseconds(HOVER_CLOSE_DELAY_MS);
+                            _closeDelayTimer.Start();
+                        }
+                    }
+                };
+            }
+            _wifiTransitionTimer.Start();
+        }
+
+        // Iniciar quando o painel Wi-Fi abre:
+        private void StartWifiAutoRefresh()
+        {
+            _wifiAutoRefreshTimer?.Stop();
+            _wifiAutoRefreshTimer = new DispatcherTimer 
+            { 
+                Interval = TimeSpan.FromSeconds(15) // Refresh a cada 15 segundos
+            };
+            _wifiAutoRefreshTimer.Tick += async (s, ev) =>
+            {
+                if (wifiPanel.Visibility == Visibility.Visible && _wifiOn)
+                {
+                    await RefreshWifiListAsync();
+                }
+                else
+                {
+                    _wifiAutoRefreshTimer?.Stop();
+                }
+            };
+            _wifiAutoRefreshTimer.Start();
+        }
+
+        // Parar quando o painel Wi-Fi fecha:
+        private void StopWifiAutoRefresh()
+        {
+            _wifiAutoRefreshTimer?.Stop();
+            _wifiAutoRefreshTimer = null;
+        }
+
+        private async void WifiRefresh_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            
+            // Animação de rotação no ícone de refresh
+            if (icoWifiRefresh != null)
+            {
+                var rotation = new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(800))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+                };
+                ((RotateTransform)icoWifiRefresh.RenderTransform)
+                    .BeginAnimation(RotateTransform.AngleProperty, rotation);
+            }
+            
+            await RefreshWifiListAsync();
         }
 
         private void AdjustWifiPanelHeight()
