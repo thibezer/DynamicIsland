@@ -94,6 +94,8 @@ namespace DynamicIslandWindows
         private DispatcherTimer? _wifiTransitionTimer;
         private bool _isWifiPanelTransitioning = false;
         private DispatcherTimer? _wifiAutoRefreshTimer;
+        private PomodoroService? _pomodoroService;
+        private DispatcherTimer? _pomodoroCloseTimer;
 
         private bool   _isIslandOpen       = false;
         private bool   _isDropZoneActive   = false;
@@ -131,7 +133,8 @@ namespace DynamicIslandWindows
         private bool _airplaneOn = false;
         private bool _accessibilityOn = false;
         private bool _batterySaverOn = false;
-        private bool _liveCaptionsOn = false;
+        private bool _pomodoroVisible = true;
+        private bool _isPomodoroExpanded = false;
         private bool _nightLightOn = false;
         private bool _mobileHotspotOn = false;
         private bool _nearbyShareOn = false;
@@ -154,6 +157,18 @@ namespace DynamicIslandWindows
             _mediaService = new MediaNotificationService();
             
             _mediaService.StateChanged += MediaService_StateChanged;
+
+            // Inicializa o serviço do Pomodoro de forma isolada
+            try
+            {
+                _pomodoroService = new PomodoroService();
+                _pomodoroService.Tick += PomodoroService_Tick;
+                _pomodoroService.StateChanged += PomodoroService_StateChanged;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[NativeIslandWindow] Falha ao instanciar PomodoroService: {ex.Message}");
+            }
         }
 
         private async void MediaService_StateChanged(object? sender, EventArgs e)
@@ -167,7 +182,7 @@ namespace DynamicIslandWindows
             CacheDpi();
 
             // Seta a janela permanentemente com tamanho fixo grande (cobre o menu expandido completo)
-            this.Width = 430;
+            this.Width = 550;
             this.Height = 425;
 
             var workArea = SystemParameters.WorkArea;
@@ -234,7 +249,7 @@ namespace DynamicIslandWindows
             UpdateToggleButton(btnAirplane, icoAirplane, _airplaneOn);
             UpdateToggleButton(btnAccessibility, icoAccessibility, _accessibilityOn);
             UpdateToggleButton(btnBatterySaver, icoBatterySaver, _batterySaverOn);
-            UpdateToggleButton(btnLiveCaptions, icoLiveCaptions, _liveCaptionsOn);
+            UpdateToggleButton(btnPomodoroToggle, icoPomodoroToggle, _pomodoroVisible);
             UpdateToggleButton(btnNightLight, icoNightLight, _nightLightOn);
             UpdateToggleButton(btnMobileHotspot, icoMobileHotspot, _mobileHotspotOn);
             UpdateToggleButton(btnNearbyShare, icoNearbyShare, _nearbyShareOn);
@@ -286,6 +301,9 @@ namespace DynamicIslandWindows
 
             islandBorder.MouseEnter += IslandBorder_MouseEnter;
             islandBorder.MouseLeave += IslandBorder_MouseLeave;
+
+            _pomodoroCloseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            _pomodoroCloseTimer.Tick += PomodoroCloseTimer_Tick;
         }
 
         private void IslandBorder_MouseEnter(object sender, MouseEventArgs e)
@@ -786,9 +804,12 @@ namespace DynamicIslandWindows
                 case "battery_saver":
                     _batterySaverOn = !_batterySaverOn; UpdateToggleButton(border, icoBatterySaver, _batterySaverOn);
                     await _hardwareService.HandleToggleAsync("battery_saver", _batterySaverOn); break;
-                case "live_captions":
-                    _liveCaptionsOn = !_liveCaptionsOn; UpdateToggleButton(border, icoLiveCaptions, _liveCaptionsOn);
-                    await _hardwareService.HandleToggleAsync("live_captions", _liveCaptionsOn); break;
+                case "pomodoro_toggle":
+                    _pomodoroVisible = !_pomodoroVisible;
+                    UpdateToggleButton(border, icoPomodoroToggle, _pomodoroVisible);
+                    pomodoroBorder.Visibility = _pomodoroVisible ? Visibility.Visible : Visibility.Collapsed;
+                    UpdatePhysicalWindowWidth();
+                    break;
                 case "night_light":
                     _nightLightOn = !_nightLightOn; UpdateToggleButton(border, icoNightLight, _nightLightOn);
                     await _hardwareService.HandleToggleAsync("night_light", _nightLightOn); break;
@@ -1596,6 +1617,24 @@ namespace DynamicIslandWindows
                 _hardwareService.Dispose();
             }
 
+            if (_pomodoroService != null)
+            {
+                try
+                {
+                    _pomodoroService.Tick -= PomodoroService_Tick;
+                    _pomodoroService.StateChanged -= PomodoroService_StateChanged;
+                    _pomodoroService.Dispose();
+                }
+                catch { }
+                _pomodoroService = null;
+            }
+
+            if (_pomodoroCloseTimer != null)
+            {
+                try { _pomodoroCloseTimer.Stop(); } catch { }
+                _pomodoroCloseTimer = null;
+            }
+
             if (_hwndSource != null)
             {
                 try { _hwndSource.RemoveHook(WndProc); _hwndSource.Dispose(); } catch { }
@@ -2261,6 +2300,354 @@ namespace DynamicIslandWindows
             totalHeight = Math.Min(totalHeight, ISLAND_OPEN_H);
 
             AnimateBorder(ISLAND_OPEN_W, totalHeight);
+        }
+
+        private void PomodoroService_Tick(object? sender, PomodoroTickEventArgs e)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                try
+                {
+                    int mins = e.RemainingSeconds / 60;
+                    int secs = e.RemainingSeconds % 60;
+                    string formattedTime = $"{mins:D2}:{secs:D2}";
+                    
+                    txtPomodoroTime.Text = formattedTime;
+                    txtPomodoroTimeExpanded.Text = formattedTime;
+
+                    if (_pomodoroService != null)
+                    {
+                        icoPomodoroPlayPause.Text = _pomodoroService.IsRunning ? "\uE769" : "\uE768";
+
+                        if (!_pomodoroService.IsRunning && _pomodoroService.CurrentState != PomodoroState.Stopped)
+                        {
+                            pomodoroBorder.Opacity = 0.6;
+                        }
+                        else
+                        {
+                            pomodoroBorder.Opacity = 1.0;
+                        }
+                    }
+
+                    UpdatePomodoroVisual(e.State, e.RemainingSeconds);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[PomodoroUI_Tick] Erro: {ex.Message}");
+                }
+            });
+        }
+
+        private void PomodoroService_StateChanged(object? sender, PomodoroStateChangedEventArgs e)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                try
+                {
+                    Debug.WriteLine($"[PomodoroUI_State] Estado mudou para: {e.NewState}");
+                    if (_pomodoroService != null)
+                    {
+                        icoPomodoroPlayPause.Text = _pomodoroService.IsRunning ? "\uE769" : "\uE768";
+                        UpdatePomodoroVisual(e.NewState, _pomodoroService.RemainingSeconds);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[PomodoroUI_StateChanged] Erro: {ex.Message}");
+                }
+            });
+        }
+
+        private void UpdatePomodoroVisual(PomodoroState state, int remainingSeconds)
+        {
+            try
+            {
+                if (state == PomodoroState.Stopped)
+                {
+                    pomodoroBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF1E1E20"));
+                    return;
+                }
+
+                // Degradê vertical (de cima para baixo: preto -> cor do estado)
+                LinearGradientBrush brush = new LinearGradientBrush
+                {
+                    StartPoint = new Point(0.5, 0),
+                    EndPoint = new Point(0.5, 1)
+                };
+
+                // Topo escuro comum para todos os estados
+                brush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FF0E0E10"), 0.0));
+                brush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FF151518"), 0.45));
+
+                if (state == PomodoroState.Working)
+                {
+                    // Base azul
+                    brush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FF0078D4"), 1.0));
+                }
+                else if (state == PomodoroState.OnBreak)
+                {
+                    if (remainingSeconds <= 30)
+                    {
+                        // Base vermelha crítica
+                        brush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FFE81123"), 1.0));
+
+                        if (remainingSeconds % 2 == 0)
+                        {
+                            pomodoroBorder.Opacity = 0.8;
+                        }
+                        else
+                        {
+                            pomodoroBorder.Opacity = 1.0;
+                        }
+                    }
+                    else
+                    {
+                        // Base verde
+                        brush.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#FF2EA043"), 1.0));
+                    }
+                }
+
+                pomodoroBorder.Background = brush;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[UpdatePomodoroVisual] Erro ao aplicar visual: {ex.Message}");
+                pomodoroBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FF1E1E20"));
+            }
+        }
+
+        private void UpdatePhysicalWindowWidth()
+        {
+            if (!_pomodoroVisible)
+            {
+                this.Width = 430;
+            }
+            else
+            {
+                this.Width = _isPomodoroExpanded ? 620 : 550;
+            }
+        }
+
+        private void TogglePomodoroExpansion()
+        {
+            if (_pomodoroService == null) return;
+
+            var duration = TimeSpan.FromMilliseconds(250);
+            var easing = new CubicEase { EasingMode = EasingMode.EaseInOut };
+
+            if (!_isPomodoroExpanded)
+            {
+                _isPomodoroExpanded = true;
+                UpdatePhysicalWindowWidth();
+
+                txtWorkTimeInput.Text = $"{_pomodoroService.WorkTimeMinutes:D2}:00";
+                txtBreakTimeInput.Text = $"{_pomodoroService.BreakTimeMinutes:D2}:00";
+
+                pomodoroCompactGrid.Visibility = Visibility.Collapsed;
+                pomodoroExpandedGrid.Visibility = Visibility.Visible;
+
+                var animWidth = new DoubleAnimation(90, 170, duration) { EasingFunction = easing };
+                pomodoroBorder.BeginAnimation(WidthProperty, animWidth);
+
+                var animHeight = new DoubleAnimation(43, 130, duration) { EasingFunction = easing };
+                pomodoroBorder.BeginAnimation(HeightProperty, animHeight);
+
+                pomodoroBorder.CornerRadius = new CornerRadius(20);
+
+                var animFade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200));
+                pomodoroExpandedGrid.BeginAnimation(OpacityProperty, animFade);
+            }
+            else
+            {
+                _isPomodoroExpanded = false;
+
+                pomodoroExpandedGrid.BeginAnimation(OpacityProperty, null);
+                pomodoroExpandedGrid.Opacity = 0;
+                pomodoroExpandedGrid.Visibility = Visibility.Collapsed;
+                
+                pomodoroCompactGrid.Visibility = Visibility.Visible;
+                pomodoroCompactGrid.Opacity = 1;
+
+                var animWidth = new DoubleAnimation(170, 90, duration) { EasingFunction = easing };
+                animWidth.Completed += (s, e) =>
+                {
+                    UpdatePhysicalWindowWidth();
+                };
+                pomodoroBorder.BeginAnimation(WidthProperty, animWidth);
+
+                var animHeight = new DoubleAnimation(130, 43, duration) { EasingFunction = easing };
+                pomodoroBorder.BeginAnimation(HeightProperty, animHeight);
+
+                pomodoroBorder.CornerRadius = new CornerRadius(21.5);
+            }
+        }
+
+        private void TxtWorkTimeInput_LostFocus(object sender, RoutedEventArgs e)
+        {
+            TextBox_LostFocus(sender, e);
+            ApplyWorkTime();
+            if (!pomodoroBorder.IsMouseOver)
+            {
+                _pomodoroCloseTimer?.Stop();
+                _pomodoroCloseTimer?.Start();
+            }
+        }
+
+        private void TxtBreakTimeInput_LostFocus(object sender, RoutedEventArgs e)
+        {
+            TextBox_LostFocus(sender, e);
+            ApplyBreakTime();
+            if (!pomodoroBorder.IsMouseOver)
+            {
+                _pomodoroCloseTimer?.Stop();
+                _pomodoroCloseTimer?.Start();
+            }
+        }
+
+        private void TxtTimeInput_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+        }
+
+        private int ParseInputTimeToMinutes(string input, int defaultValue)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return defaultValue;
+            try
+            {
+                input = input.Trim();
+                if (input.Contains(":"))
+                {
+                    string[] parts = input.Split(':');
+                    if (parts.Length > 0 && int.TryParse(parts[0], out int mins))
+                    {
+                        return mins;
+                    }
+                }
+                else
+                {
+                    if (int.TryParse(input, out int mins))
+                    {
+                        return mins;
+                    }
+                }
+                return defaultValue;
+            }
+            catch
+            {
+                return defaultValue;
+            }
+        }
+
+        private void ApplyWorkTime()
+        {
+            if (_pomodoroService == null) return;
+            int currentMinutes = _pomodoroService.WorkTimeMinutes;
+            int minutes = ParseInputTimeToMinutes(txtWorkTimeInput.Text, currentMinutes);
+            
+            if (minutes > 0 && minutes <= 180)
+            {
+                _pomodoroService.WorkTimeMinutes = minutes;
+                txtWorkTimeInput.Text = $"{minutes:D2}:00";
+            }
+            else
+            {
+                txtWorkTimeInput.Text = $"{currentMinutes:D2}:00";
+            }
+        }
+
+        private void ApplyBreakTime()
+        {
+            if (_pomodoroService == null) return;
+            int currentMinutes = _pomodoroService.BreakTimeMinutes;
+            int minutes = ParseInputTimeToMinutes(txtBreakTimeInput.Text, currentMinutes);
+            
+            if (minutes > 0 && minutes <= 60)
+            {
+                _pomodoroService.BreakTimeMinutes = minutes;
+                txtBreakTimeInput.Text = $"{minutes:D2}:00";
+            }
+            else
+            {
+                txtBreakTimeInput.Text = $"{currentMinutes:D2}:00";
+            }
+        }
+
+        private void PomodoroBorder_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            try
+            {
+                _pomodoroService?.Toggle();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[PomodoroClickLeft] Erro: {ex.Message}");
+            }
+        }
+
+        private void PomodoroBorder_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            try
+            {
+                TogglePomodoroExpansion();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[PomodoroClickRight] Erro: {ex.Message}");
+            }
+        }
+
+        private void PomodoroBorder_MouseLeave(object sender, MouseEventArgs e)
+        {
+            if (_isPomodoroExpanded)
+            {
+                _pomodoroCloseTimer?.Stop();
+                _pomodoroCloseTimer?.Start();
+            }
+        }
+
+        private void PomodoroCloseTimer_Tick(object? sender, EventArgs e)
+        {
+            _pomodoroCloseTimer?.Stop();
+            if (_isPomodoroExpanded && !pomodoroBorder.IsMouseOver)
+            {
+                // Limpa o foco do teclado de forma segura para disparar o LostFocus e aplicar as configurações
+                FocusManager.SetFocusedElement(FocusManager.GetFocusScope(this), null);
+                Keyboard.ClearFocus();
+
+                TogglePomodoroExpansion();
+            }
+        }
+
+        private void PomodoroPlayPause_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            try
+            {
+                _pomodoroService?.Toggle();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[PomodoroClickPlayPause] Erro: {ex.Message}");
+            }
+        }
+
+        private void PomodoroReset_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            try
+            {
+                _pomodoroService?.Reset();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[PomodoroClickReset] Erro: {ex.Message}");
+            }
         }
     }
 }

@@ -241,24 +241,25 @@
           - Width e Height: Animados de forma ultra-suave via WPF puro (Zero Jitter).
           - AllowDrop="True" e eventos: Agora o Drag & Drop fica restrito apenas à área física visível da pílula.
         -->
-        <Border Name="islandBorder"
-                Background="{DynamicResource IslandBackgroundBrush}"
-                CornerRadius="22.5"
-                BorderBrush="#2D2D2D"
-                BorderThickness="0"
-                Margin="10"
-                Padding="10,6.5,10,6.5"
-                Width="300"
-                Height="43"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Bottom"
-                ClipToBounds="True"
-                AllowDrop="True"
-                DragEnter="Window_DragEnter"
-                DragOver="Window_DragOver"
-                DragLeave="Window_DragLeave"
-                Drop="Window_Drop"
-                MouseLeftButtonDown="IslandBorder_MouseLeftButtonDown">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10">
+            <!-- islandBorder: A casca escura principal da Dynamic Island -->
+            <Border Name="islandBorder"
+                    Background="{DynamicResource IslandBackgroundBrush}"
+                    CornerRadius="22.5"
+                    BorderBrush="#2D2D2D"
+                    BorderThickness="0"
+                    Margin="0"
+                    Padding="10,6.5,10,6.5"
+                    Width="300"
+                    Height="43"
+                    VerticalAlignment="Bottom"
+                    ClipToBounds="True"
+                    AllowDrop="True"
+                    DragEnter="Window_DragEnter"
+                    DragOver="Window_DragOver"
+                    DragLeave="Window_DragLeave"
+                    Drop="Window_Drop"
+                    MouseLeftButtonDown="IslandBorder_MouseLeftButtonDown">
             
         <Grid Name="mainContentGrid" VerticalAlignment="Center">
             <!-- 
@@ -540,11 +541,11 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Toggle: Legendas Ao Vivo -->
-                        <Border Grid.Row="2" Grid.Column="4" Style="{StaticResource ToggleButtonStyle}" Name="btnLiveCaptions" MouseLeftButtonDown="Toggle_Click" Tag="live_captions">
+                        <!-- Toggle: Pomodoro -->
+                        <Border Grid.Row="2" Grid.Column="4" Style="{StaticResource ToggleButtonStyle}" Name="btnPomodoroToggle" MouseLeftButtonDown="Toggle_Click" Tag="pomodoro_toggle">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
-                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xED1E;" FontSize="15" Width="20" Name="icoLiveCaptions" />
-                                <TextBlock Style="{StaticResource FluentText}" Text="Legendas" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
+                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE8F1;" FontSize="15" Width="20" Name="icoPomodoroToggle" />
+                                <TextBlock Style="{StaticResource FluentText}" Text="Pomodoro" FontSize="11" FontWeight="Medium" Margin="6,0,0,0" VerticalAlignment="Center" />
                             </StackPanel>
                         </Border>
 
@@ -793,6 +794,151 @@
 
             </Grid>
         </Grid>
-        </Border>
+            </Border>
+            
+            <!-- Bolha do Pomodoro (Separada e Expansível) -->
+            <Border Name="pomodoroBorder"
+                    Width="90"
+                    Height="43"
+                    CornerRadius="21.5"
+                    Background="#FF1E1E20"
+                    BorderBrush="#2D2D2D"
+                    BorderThickness="0"
+                    Margin="10,0,0,0"
+                    VerticalAlignment="Bottom"
+                    Cursor="Hand"
+                    MouseLeftButtonDown="PomodoroBorder_MouseLeftButtonDown"
+                    MouseRightButtonDown="PomodoroBorder_MouseRightButtonDown"
+                    MouseLeave="PomodoroBorder_MouseLeave"
+                    Visibility="Visible">
+                <Grid>
+                    <!-- Painel Compacto do Pomodoro (Exibe apenas o tempo centralizado) -->
+                    <Grid Name="pomodoroCompactGrid" Visibility="Visible" Opacity="1">
+                        <TextBlock Name="txtPomodoroTime" 
+                                   Text="25:00" 
+                                   Style="{StaticResource FluentText}" 
+                                   FontSize="14" 
+                                   FontWeight="Bold" 
+                                   HorizontalAlignment="Center" 
+                                   VerticalAlignment="Center" />
+                    </Grid>
+
+                    <!-- Painel Expandido do Pomodoro (Exibe configurações e controles) -->
+                    <Grid Name="pomodoroExpandedGrid" Visibility="Collapsed" Opacity="0" Margin="12,10,12,10">
+                        <Grid.RowDefinitions>
+                            <!-- Linha 0: Configurações de Trabalho / Descanso -->
+                            <RowDefinition Height="Auto" />
+                            <!-- Linha 1: Espaçador -->
+                            <RowDefinition Height="*" />
+                            <!-- Linha 2: Cronômetro e Botões -->
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <!-- Configurações de Trabalho/Descanso (Topo) -->
+                        <Grid Grid.Row="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Trabalho -->
+                            <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                                <TextBlock Style="{StaticResource FluentText}" 
+                                           Text="Trabalho" 
+                                           FontSize="10.5" 
+                                           HorizontalAlignment="Center" 
+                                           Opacity="0.8" 
+                                           Margin="0,0,0,4"/>
+                                <Border Background="#D5000000" CornerRadius="8" Width="60" Height="26">
+                                    <TextBox Name="txtWorkTimeInput"
+                                             Text="25:00"
+                                             Background="Transparent"
+                                             Foreground="White"
+                                             BorderThickness="0"
+                                             FontSize="11.5"
+                                             FontWeight="Bold"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             HorizontalContentAlignment="Center"
+                                             VerticalContentAlignment="Center"
+                                             GotFocus="TextBox_GotFocus"
+                                             LostFocus="TxtWorkTimeInput_LostFocus"
+                                             KeyDown="TxtTimeInput_KeyDown"/>
+                                </Border>
+                            </StackPanel>
+
+                            <!-- Descanso -->
+                            <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                                <TextBlock Style="{StaticResource FluentText}" 
+                                           Text="Descanso" 
+                                           FontSize="10.5" 
+                                           HorizontalAlignment="Center" 
+                                           Opacity="0.8" 
+                                           Margin="0,0,0,4"/>
+                                <Border Background="#D5000000" CornerRadius="8" Width="60" Height="26">
+                                    <TextBox Name="txtBreakTimeInput"
+                                             Text="05:00"
+                                             Background="Transparent"
+                                             Foreground="White"
+                                             BorderThickness="0"
+                                             FontSize="11.5"
+                                             FontWeight="Bold"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             HorizontalContentAlignment="Center"
+                                             VerticalContentAlignment="Center"
+                                             GotFocus="TextBox_GotFocus"
+                                             LostFocus="TxtBreakTimeInput_LostFocus"
+                                             KeyDown="TxtTimeInput_KeyDown"/>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Cronômetro e Controles (Base) -->
+                        <Grid Grid.Row="2" Margin="0,0,0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Tempo Grande -->
+                            <TextBlock Name="txtPomodoroTimeExpanded" 
+                                       Grid.Column="0"
+                                       Text="25:00" 
+                                       Style="{StaticResource FluentText}" 
+                                       FontSize="23" 
+                                       FontWeight="Bold" 
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Left"
+                                       Margin="2,0,0,0"/>
+
+                            <!-- Botões de Controle (Play/Pause e Reset) -->
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- Play/Pause -->
+                                <Border Style="{StaticResource TactileBorderButtonStyle}" 
+                                        Width="26" Height="26" CornerRadius="13" 
+                                        Background="#D5000000" Margin="0,0,6,0" 
+                                        Cursor="Hand" MouseLeftButtonDown="PomodoroPlayPause_Click">
+                                    <TextBlock Name="icoPomodoroPlayPause" 
+                                               Style="{StaticResource FluentIcon}" 
+                                               Text="&#xE768;" FontSize="11" 
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <!-- Reset -->
+                                <Border Style="{StaticResource TactileBorderButtonStyle}" 
+                                        Width="26" Height="26" CornerRadius="13" 
+                                        Background="#D5000000" 
+                                        Cursor="Hand" MouseLeftButtonDown="PomodoroReset_Click">
+                                    <TextBlock Style="{StaticResource FluentIcon}" 
+                                               Text="&#xE72C;" FontSize="11" 
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Border>
+        </StackPanel>
     </Grid>
 </Window>
