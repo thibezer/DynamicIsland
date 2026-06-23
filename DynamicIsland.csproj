@@ -13,4 +13,11 @@
     <PackageReference Include="System.Management" Version="8.0.0" />
   </ItemGroup>
 
+  <!-- Evita compilar o protótipo duplicado da pasta DesignPrototype -->
+  <ItemGroup>
+    <Compile Remove="DesignPrototype\**" />
+    <Page Remove="DesignPrototype\**" />
+    <None Include="DesignPrototype\**" />
+  </ItemGroup>
+
 </Project>

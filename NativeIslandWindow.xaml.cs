@@ -80,7 +80,7 @@ namespace DynamicIslandWindows
 
         // Dimensões físicas lógicas finais do widget (sincronizadas e sem saltos)
         private const double ISLAND_OPEN_W       = 410;
-        private const double ISLAND_OPEN_H       = 374;
+        private const double ISLAND_OPEN_H       = 400;
         private const double ISLAND_APPEARANCE_H = 300;
         private const double DROPZONE_W          = 320;
         private const double DROPZONE_H          = 200;
@@ -396,45 +396,33 @@ namespace DynamicIslandWindows
         // Executado diretamente pela GPU, sem recalcular buffers de janela do SO.
         private void AnimateBorder(double targetWidth, double targetHeight, Action? onCompleted = null)
         {
-            // Detecta se está expandindo ou contraindo
-            bool isExpanding = targetWidth > islandBorder.ActualWidth || targetHeight > islandBorder.ActualHeight;
-            
-            // Durações diferenciadas mais ágeis e fluidas:
-            var duration = isExpanding 
-                ? TimeSpan.FromMilliseconds(340)   // Expansão: ágil e dramática
-                : TimeSpan.FromMilliseconds(260);  // Contração: snap rápido
-
-            // Efeito elástico sutil (overshoot na expansão, pull-back na contração)
-            IEasingFunction easing;
-            if (isExpanding)
+            var widthSpring = new SpringEase
             {
-                // Expansão: overshoot sutil com BackEase (suave e premium, sem o tremor do ElasticEase)
-                easing = new BackEase 
-                { 
-                    EasingMode = EasingMode.EaseOut, 
-                    Amplitude = 0.3      // Overshoot sutil (30% da distância percorrida)
-                };
-            }
-            else
-            {
-                // Contração: snap limpo sem overshoot negativo excessivo
-                easing = new BackEase 
-                { 
-                    EasingMode = EasingMode.EaseOut, 
-                    Amplitude = 0.12      // Pull-back sutil
-                };
-            }
-
-            var widthAnim = new DoubleAnimation(islandBorder.ActualWidth, targetWidth, duration) 
-            { 
-                EasingFunction = easing,
-                FillBehavior = FillBehavior.HoldEnd
+                DampingRatio = 0.85,
+                Response     = 0.55
             };
-            
-            var heightAnim = new DoubleAnimation(islandBorder.ActualHeight, targetHeight, duration) 
-            { 
-                EasingFunction = easing,
-                FillBehavior = FillBehavior.HoldEnd
+
+            var heightSpring = new SpringEase
+            {
+                DampingRatio = 0.85,
+                Response     = 0.45  // response menor = mais rígida/rápida verticalmente (squash-and-stretch)
+            };
+
+            // WWDC 2025: Animação Ancorada na Fonte (Source-Anchored Animation)
+            // Captura o tamanho visual real em tempo de execução para evitar saltos/jitter
+            double currentWidth = islandBorder.RenderSize.Width;
+            double currentHeight = islandBorder.RenderSize.Height;
+            if (currentWidth <= 0) currentWidth = islandBorder.Width;
+            if (currentHeight <= 0) currentHeight = islandBorder.Height;
+
+            var widthAnim = new DoubleAnimation(currentWidth, targetWidth, widthSpring.GetSettleTime())
+            {
+                EasingFunction = widthSpring
+            };
+
+            var heightAnim = new DoubleAnimation(currentHeight, targetHeight, heightSpring.GetSettleTime())
+            {
+                EasingFunction = heightSpring
             };
 
             if (onCompleted != null)
@@ -442,8 +430,41 @@ namespace DynamicIslandWindows
                 heightAnim.Completed += (s, e) => onCompleted();
             }
 
-            islandBorder.BeginAnimation(Border.WidthProperty, widthAnim);
+            islandBorder.BeginAnimation(Border.WidthProperty,  widthAnim);
             islandBorder.BeginAnimation(Border.HeightProperty, heightAnim);
+        }
+
+        /// <summary>
+        /// Anima a cor de qualquer SolidColorBrush em qualquer FrameworkElement.
+        /// Cria o brush automaticamente caso o elemento use null ou não-SolidColorBrush.
+        /// </summary>
+        private static void AnimateColor(
+            FrameworkElement element,
+            DependencyProperty brushProperty,
+            Color targetColor,
+            TimeSpan duration)
+        {
+            if (element == null) return;
+
+            // Garante que o brush é mutável (SolidColorBrush não-frozen)
+            var currentBrush = element.GetValue(brushProperty) as SolidColorBrush;
+            Color initialColor = (currentBrush != null && !currentBrush.IsFrozen)
+                ? currentBrush.Color
+                : (currentBrush?.Color ?? Colors.Transparent);
+
+            if (currentBrush == null || currentBrush.IsFrozen)
+            {
+                var newBrush = new SolidColorBrush(initialColor);
+                element.SetValue(brushProperty, newBrush);
+                currentBrush = newBrush;
+            }
+
+            var anim = new ColorAnimation(targetColor, duration)
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+
+            currentBrush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
         }
 
         private void OpenIsland()
@@ -469,7 +490,20 @@ namespace DynamicIslandWindows
             // Painel expandido entra com fade + slide APÓS delay para sincronizar com o border
             AnimatePanelIn(expandedIslandPanel, slideDistance: 20, delayMs: 100);
 
-            AnimateBorder(ISLAND_OPEN_W, ISLAND_OPEN_H);
+            // Mede a altura ideal dinamicamente para evitar cortes no conteúdo da pílula (Row 2)
+            expandedIslandPanel.UpdateLayout();
+            expandedIslandPanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
+            double expandedHeight = expandedIslandPanel.DesiredSize.Height;
+
+            miniIslandPanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
+            double miniHeight = miniIslandPanel.DesiredSize.Height;
+
+            // Altura total = expandedHeight + miniHeight + separador (6px) + padding (13px) = 19px
+            double totalHeight = expandedHeight + miniHeight + 19;
+            totalHeight = Math.Min(totalHeight, ISLAND_OPEN_H);
+
+            AnimateBorder(ISLAND_OPEN_W, totalHeight);
+            ApplyDepthHierarchy(IslandDepth.Expanded);
         }
 
         private void CloseIsland()
@@ -478,6 +512,8 @@ namespace DynamicIslandWindows
             _isWifiPanelTransitioning = false; // Reseta a proteção ao fechar
             _wifiTransitionTimer?.Stop();
             StopWifiAutoRefresh();
+
+            ApplyDepthHierarchy(IslandDepth.Compact);
 
             if (txtMiniTitle != null) txtMiniTitle.MaxWidth = 220;
             if (txtMiniSubtitle != null) txtMiniSubtitle.MaxWidth = 220;
@@ -687,7 +723,7 @@ namespace DynamicIslandWindows
             if (islandBorder != null)
             {
                 islandBorder.Effect = null;
-                islandBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x2D));
+                islandBorder.BorderThickness = new Thickness(0);
             }
 
             CloseIsland();
@@ -848,50 +884,17 @@ namespace DynamicIslandWindows
                 targetIcon = Colors.White;
             }
 
-            // Anima a cor de fundo suavemente (150ms como iOS Control Center)
-            var bgAnim = new ColorAnimation(targetBg, TimeSpan.FromMilliseconds(150))
-            {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            
-            var iconAnim = new ColorAnimation(targetIcon, TimeSpan.FromMilliseconds(150))
-            {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
+            var duration = TimeSpan.FromMilliseconds(250);
 
-            // Garante que o Background é SolidColorBrush animável
-            if (!(border.Background is SolidColorBrush bgBrush) || bgBrush.IsFrozen)
-            {
-                bgBrush = new SolidColorBrush(
-                    (border.Background as SolidColorBrush)?.Color ?? Colors.Transparent);
-                border.Background = bgBrush;
-            }
-            bgBrush.BeginAnimation(SolidColorBrush.ColorProperty, bgAnim);
+            // Anima fundo
+            AnimateColor(border, Border.BackgroundProperty, targetBg, duration);
 
-            // Garante que o Foreground do ícone é animável
-            if (!(icon.Foreground is SolidColorBrush iconBrush) || iconBrush.IsFrozen)
-            {
-                iconBrush = new SolidColorBrush(
-                    (icon.Foreground as SolidColorBrush)?.Color ?? Colors.White);
-                icon.Foreground = iconBrush;
-            }
-            iconBrush.BeginAnimation(SolidColorBrush.ColorProperty, iconAnim);
+            // Anima ícone
+            AnimateColor(icon, TextBlock.ForegroundProperty, targetIcon, duration);
 
-            // BorderBrush do toggle
-            if (isOn)
-            {
-                if (!(border.BorderBrush is SolidColorBrush borderBrush) || borderBrush.IsFrozen)
-                {
-                    borderBrush = new SolidColorBrush(Colors.Transparent);
-                    border.BorderBrush = borderBrush;
-                }
-                borderBrush.BeginAnimation(SolidColorBrush.ColorProperty, 
-                    new ColorAnimation(_themeColor, TimeSpan.FromMilliseconds(150)));
-            }
-            else
-            {
-                border.BorderBrush = Brushes.Transparent;
-            }
+            // Anima borda
+            Color targetBorder = isOn ? _themeColor : Colors.Transparent;
+            AnimateColor(border, Border.BorderBrushProperty, targetBorder, duration);
         }
 
         private void OpenManualFilePicker()
@@ -1250,8 +1253,8 @@ namespace DynamicIslandWindows
             miniIslandPanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
             double miniHeight = miniIslandPanel.DesiredSize.Height;
 
-            // Altura total = altura do painel de cores + pílula compacta + separador (6px) + padding (13px) = 19px
-            double totalHeight = appearanceHeight + miniHeight + 19;
+            // Altura total = altura do painel de cores + pílula compacta + separador (6px) + padding (13px) = 19px + 4px (Detail Depth)
+            double totalHeight = appearanceHeight + miniHeight + 19 + 4.0;
 
             // Limita a altura para não exceder o limite máximo da ilha
             totalHeight = Math.Min(totalHeight, ISLAND_OPEN_H);
@@ -1262,7 +1265,8 @@ namespace DynamicIslandWindows
                 AnimatePanelIn(appearancePanel, slideDistance: 12, delayMs: 0);
             });
 
-            AnimateBorder(ISLAND_OPEN_W, totalHeight);
+            AnimateBorder(ISLAND_OPEN_W + 4.0, totalHeight);
+            ApplyDepthHierarchy(IslandDepth.Detail);
         }
 
         private void BackToMainPanel_Click(object sender, MouseButtonEventArgs e)
@@ -1288,7 +1292,20 @@ namespace DynamicIslandWindows
             {
                 UpdateToggleButton(btnWifiMenu, icoWifiMenu, _wifiOn);
             }
-            AnimateBorder(ISLAND_OPEN_W, ISLAND_OPEN_H);
+
+            // Mede a altura ideal dinamicamente para evitar cortes no conteúdo da pílula (Row 2)
+            expandedIslandPanel.UpdateLayout();
+            expandedIslandPanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
+            double expandedHeight = expandedIslandPanel.DesiredSize.Height;
+
+            miniIslandPanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
+            double miniHeight = miniIslandPanel.DesiredSize.Height;
+
+            double totalHeight = expandedHeight + miniHeight + 19;
+            totalHeight = Math.Min(totalHeight, ISLAND_OPEN_H);
+
+            AnimateBorder(ISLAND_OPEN_W, totalHeight);
+            ApplyDepthHierarchy(IslandDepth.Expanded);
         }
 
         private void SelectColor_Click(object sender, MouseButtonEventArgs e)
@@ -2293,13 +2310,14 @@ namespace DynamicIslandWindows
             miniIslandPanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
             double miniHeight = miniIslandPanel.DesiredSize.Height;
 
-            // Altura final = wifiHeight + miniHeight + separador (6px) + padding (13px) = 19px
-            double totalHeight = wifiHeight + miniHeight + 19;
+            // Altura final = wifiHeight + miniHeight + separador (6px) + padding (13px) = 19px + 4px (Detail Depth)
+            double totalHeight = wifiHeight + miniHeight + 19 + 4.0;
 
             // Limita ao tamanho máximo do painel aberto
             totalHeight = Math.Min(totalHeight, ISLAND_OPEN_H);
 
-            AnimateBorder(ISLAND_OPEN_W, totalHeight);
+            AnimateBorder(ISLAND_OPEN_W + 4.0, totalHeight);
+            ApplyDepthHierarchy(IslandDepth.Detail);
         }
 
         private void PomodoroService_Tick(object? sender, PomodoroTickEventArgs e)
@@ -2649,5 +2667,25 @@ namespace DynamicIslandWindows
                 Debug.WriteLine($"[PomodoroClickReset] Erro: {ex.Message}");
             }
         }
+        /// <summary>
+        /// Aplica os ajustes de hierarquia de profundidade ao island.
+        /// Chamado quando o estado muda para um subnível (ex: expandido → detalhe) de acordo com WWDC 2025.
+        /// </summary>
+        private void ApplyDepthHierarchy(IslandDepth depth)
+        {
+            double targetOpacity = depth switch
+            {
+                IslandDepth.Compact  => 0.90,
+                IslandDepth.Expanded => 0.92,
+                IslandDepth.Detail   => 0.96,  // mais opaco = mais "presente"
+                _                    => 0.90
+            };
+
+            islandBorder.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(targetOpacity, TimeSpan.FromMilliseconds(200))
+                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+        }
     }
+
+    public enum IslandDepth { Compact, Expanded, Detail }
 }
