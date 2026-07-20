@@ -309,19 +309,30 @@ namespace DynamicIslandWindows.Services
                 string title = defaultTitle;
                 string content = defaultContent;
 
+                string GetFirstLine(string text)
+                {
+                    if (string.IsNullOrEmpty(text)) return text;
+                    var index = text.IndexOfAny(new[] { '\r', '\n' });
+                    if (index >= 0)
+                    {
+                        return text.Substring(0, index).Trim();
+                    }
+                    return text.Trim();
+                }
+
                 if (ec >= 3)
                 {
-                    title = elems[1].Text;
-                    content = elems[2].Text;
+                    title = GetFirstLine(elems[1].Text);
+                    content = GetFirstLine(elems[2].Text);
                 }
                 else if (ec == 2)
                 {
-                    title = elems[0].Text;
-                    content = elems[1].Text;
+                    title = GetFirstLine(elems[0].Text);
+                    content = GetFirstLine(elems[1].Text);
                 }
                 else if (ec == 1)
                 {
-                    title = elems[0].Text;
+                    title = GetFirstLine(elems[0].Text);
                 }
 
                 string appName = last.AppInfo.AppUserModelId ?? string.Empty;
