@@ -40,6 +40,7 @@ namespace DynamicIslandWindows.Services
         private int _remainingSeconds = 25 * 60;
         private PomodoroState _state = PomodoroState.Stopped;
         private bool _disposed = false;
+        private DateTime _endUtc;
 
         public event EventHandler<PomodoroTickEventArgs>? Tick;
         public event EventHandler<PomodoroStateChangedEventArgs>? StateChanged;
@@ -53,10 +54,11 @@ namespace DynamicIslandWindows.Services
             get => _workTimeSeconds / 60;
             set
             {
-                if (value > 0 && value <= 180)
+                if (value > 0 && value <= 180 && value * 60 != _workTimeSeconds)
                 {
                     _workTimeSeconds = value * 60;
-                    if (_state == PomodoroState.Stopped || _state == PomodoroState.Working)
+                    // Ciclo em andamento não é reiniciado: o novo valor vale a partir do próximo ciclo
+                    if (_state == PomodoroState.Stopped)
                     {
                         _remainingSeconds = _workTimeSeconds;
                         OnTick(_remainingSeconds, _state);
@@ -73,11 +75,6 @@ namespace DynamicIslandWindows.Services
                 if (value > 0 && value <= 60)
                 {
                     _breakTimeSeconds = value * 60;
-                    if (_state == PomodoroState.OnBreak)
-                    {
-                        _remainingSeconds = _breakTimeSeconds;
-                        OnTick(_remainingSeconds, _state);
-                    }
                 }
             }
         }
@@ -88,7 +85,8 @@ namespace DynamicIslandWindows.Services
             {
                 _timer = new DispatcherTimer
                 {
-                    Interval = TimeSpan.FromSeconds(1)
+                    // Intervalo curto: o tempo restante é calculado pelo relógio, o timer só dispara a checagem
+                    Interval = TimeSpan.FromMilliseconds(250)
                 };
                 _timer.Tick += Timer_Tick;
             }
@@ -110,6 +108,7 @@ namespace DynamicIslandWindows.Services
                     OnStateChanged(_state);
                 }
 
+                _endUtc = DateTime.UtcNow.AddSeconds(_remainingSeconds);
                 _timer?.Start();
                 OnTick(_remainingSeconds, _state);
             }
@@ -124,6 +123,7 @@ namespace DynamicIslandWindows.Services
             if (_disposed) return;
             try
             {
+                if (IsRunning) _remainingSeconds = RemainingFromClock();
                 _timer?.Stop();
                 OnTick(_remainingSeconds, _state);
             }
@@ -167,27 +167,32 @@ namespace DynamicIslandWindows.Services
             if (_disposed) return;
             try
             {
-                if (_remainingSeconds > 0)
+                int remaining = RemainingFromClock();
+                if (remaining > 0)
                 {
-                    _remainingSeconds--;
-                    OnTick(_remainingSeconds, _state);
+                    if (remaining != _remainingSeconds)
+                    {
+                        _remainingSeconds = remaining;
+                        OnTick(_remainingSeconds, _state);
+                    }
                 }
                 else
                 {
-                    // Transição automática de estados
+                    // Transição automática de estados, sem exibir 00:00 por um tick extra
                     if (_state == PomodoroState.Working)
                     {
                         _state = PomodoroState.OnBreak;
                         _remainingSeconds = _breakTimeSeconds;
-                        OnStateChanged(_state);
                     }
-                    else if (_state == PomodoroState.OnBreak)
+                    else
                     {
                         _state = PomodoroState.Working;
                         _remainingSeconds = _workTimeSeconds;
-                        OnStateChanged(_state);
                     }
+                    _endUtc = DateTime.UtcNow.AddSeconds(_remainingSeconds);
+                    OnStateChanged(_state);
                     OnTick(_remainingSeconds, _state);
+                    try { System.Media.SystemSounds.Asterisk.Play(); } catch { }
                 }
             }
             catch (Exception ex)
@@ -195,6 +200,9 @@ namespace DynamicIslandWindows.Services
                 Debug.WriteLine($"[PomodoroTick] Erro no tick do temporizador: {ex.Message}");
             }
         }
+
+        private int RemainingFromClock() =>
+            Math.Max(0, (int)Math.Ceiling((_endUtc - DateTime.UtcNow).TotalSeconds));
 
         protected virtual void OnTick(int remainingSeconds, PomodoroState state)
         {

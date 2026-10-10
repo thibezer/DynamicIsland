@@ -8,12 +8,8 @@ namespace DynamicIslandWindows
     /// Easing function que replica com precisão matemática a física de mola (Spring Physics)
     /// usada pelo SwiftUI / Dynamic Island da Apple.
     ///
-    /// USO OBRIGATÓRIO:
-    ///   - EasingMode deve ser EasingMode.EaseOut (definido no construtor por padrão).
-    ///   - A Duration do DoubleAnimation deve ser GetSettleTime(), não um valor fixo.
-    ///
-    /// XAML:
-    ///   <anim:SpringEase DampingRatio="0.85" Response="0.55"/>
+    /// Suporta perfeitamente os 3 modos do WPF (EaseOut, EaseIn, EaseInOut).
+    /// Por padrão, EasingMode é EasingMode.EaseOut (o padrão natural de molas da Apple).
     /// </summary>
     public class SpringEase : EasingFunctionBase
     {
@@ -24,14 +20,22 @@ namespace DynamicIslandWindows
                 nameof(DampingRatio),
                 typeof(double),
                 typeof(SpringEase),
-                new PropertyMetadata(0.85));
+                new PropertyMetadata(0.85, null, CoerceDampingRatio));
 
         public static readonly DependencyProperty ResponseProperty =
             DependencyProperty.Register(
                 nameof(Response),
                 typeof(double),
                 typeof(SpringEase),
-                new PropertyMetadata(0.55));
+                new PropertyMetadata(0.55, null, CoerceResponse));
+
+        // Coerção no nível da DependencyProperty: vale também para valores vindos de XAML,
+        // Storyboard ou SetValue direto (o setter CLR é ignorado nesses casos)
+        private static object CoerceDampingRatio(DependencyObject d, object value) =>
+            Math.Clamp((double)value, 0.01, 0.999);
+
+        private static object CoerceResponse(DependencyObject d, object value) =>
+            Math.Max((double)value, 0.01);
 
         // ── Propriedades ──────────────────────────────────────────────────────────────
 
@@ -43,7 +47,7 @@ namespace DynamicIslandWindows
         public double DampingRatio
         {
             get => (double)GetValue(DampingRatioProperty);
-            set => SetValue(DampingRatioProperty, Math.Clamp(value, 0.01, 0.999));
+            set => SetValue(DampingRatioProperty, value);
         }
 
         /// <summary>
@@ -53,64 +57,87 @@ namespace DynamicIslandWindows
         public double Response
         {
             get => (double)GetValue(ResponseProperty);
-            set => SetValue(ResponseProperty, Math.Max(value, 0.01));
+            set => SetValue(ResponseProperty, value);
         }
+
+        // ── Presets Prontos (Apple HIG) ───────────────────────────────────────────────
+
+        /// <summary>Expansão e retração da Dynamic Island (fluida, amortecida)</summary>
+        public static SpringEase Expansion => new SpringEase { DampingRatio = 0.85, Response = 0.55 };
+
+        /// <summary>Micro-interações rápidas e responsivas (botões, switches)</summary>
+        public static SpringEase Snappy => new SpringEase { DampingRatio = 0.85, Response = 0.35 };
+
+        /// <summary>Overshoot mais perceptível para pop-ins e badges</summary>
+        public static SpringEase Bouncy => new SpringEase { DampingRatio = 0.65, Response = 0.40 };
+
+        /// <summary>Transição ultra suave com quase nenhum overshoot</summary>
+        public static SpringEase Smooth => new SpringEase { DampingRatio = 0.95, Response = 0.50 };
 
         // ── Construtor ────────────────────────────────────────────────────────────────
 
         public SpringEase()
         {
-            // EaseOut é o único modo fisicamente correto para uma mola.
-            // EaseIn produziria movimento invertido (WPF aplica f_out(t) = 1 - f_in(1-t)).
+            // EaseOut é o padrão para molas (movimento rápido no início, amortecendo no alvo).
             EasingMode = EasingMode.EaseOut;
         }
 
         // ── Núcleo da equação diferencial ─────────────────────────────────────────────
 
-        protected override double EaseInCore(double normalizedTime)
+        /// <summary>
+        /// Calcula a curva fundamental Ease-Out da resposta ao degrau da mola.
+        /// </summary>
+        private double CalculateSpringEaseOut(double t)
         {
-            double t = normalizedTime;
-
-            // Guards de boundary — WPF pode chamar com valores ligeiramente fora de [0,1]
             if (t <= 0.0) return 0.0;
             if (t >= 1.0) return 1.0;
 
-            double zeta    = DampingRatio;
-            double T       = Response;
+            double zeta = DampingRatio;
+            double T = Response;
 
             // Frequência natural (rad/s)
-            double omegaN  = (2.0 * Math.PI) / T;
+            double omegaN = (2.0 * Math.PI) / T;
 
             // Frequência amortecida — max() previne raiz negativa por erro de ponto flutuante
-            double omegaD  = omegaN * Math.Sqrt(Math.Max(0.0, 1.0 - zeta * zeta));
+            double omegaD = omegaN * Math.Sqrt(Math.Max(0.0, 1.0 - zeta * zeta));
 
             // Fator de decaimento exponencial
-            double alpha   = zeta * omegaN;
+            double alpha = zeta * omegaN;
 
-            // Settle factor: quantas "vezes T" são necessárias para estabilizar a 0.1%.
-            // Derivado de: settleTime = -ln(0.001) / alpha = 6.908 / (2π·ζ) * T
-            // Logo settle_factor = 6.908 / (2π·ζ) — independente de T.
+            // Settle factor: quantas "vezes T" são necessárias para estabilizar a 0.1%
             double settleFactor = -Math.Log(0.001) / (2.0 * Math.PI * zeta);
 
             // Mapeia t ∈ [0,1] para o tempo físico real que cobre o ciclo de estabilização
             double physicalTime = t * T * settleFactor;
 
-            // Resolução da equação diferencial para sistema subamortecido
+            // Resolução da equação diferencial para sistema subamortecido (Ease-Out)
             double envelope = Math.Exp(-alpha * physicalTime);
-            double cosTerm  = Math.Cos(omegaD * physicalTime);
-            double sinTerm  = (omegaD > 1e-10)
+            double cosTerm = Math.Cos(omegaD * physicalTime);
+            double sinTerm = (omegaD > 1e-10)
                 ? (alpha / omegaD) * Math.Sin(omegaD * physicalTime)
-                : 0.0;  // Guarda: omegaD → 0 quando zeta → 1
+                : 0.0;
 
             return 1.0 - envelope * (cosTerm + sinTerm);
+        }
+
+        /// <summary>
+        /// O WPF define EaseOut como: Ease(t) = 1.0 - EaseInCore(1.0 - t).
+        /// Para que Ease(t) resulte na curva correta CalculateSpringEaseOut(t) quando EasingMode == EaseOut,
+        /// EaseInCore(u) deve retornar 1.0 - CalculateSpringEaseOut(1.0 - u).
+        /// Isso também garante que EaseIn e EaseInOut funcionem perfeitamente segundo a especificação do WPF.
+        /// </summary>
+        protected override double EaseInCore(double normalizedTime)
+        {
+            if (normalizedTime <= 0.0) return 0.0;
+            if (normalizedTime >= 1.0) return 1.0;
+
+            return 1.0 - CalculateSpringEaseOut(1.0 - normalizedTime);
         }
 
         // ── Obrigatório: Freezable / clone do WPF ────────────────────────────────────
 
         protected override Freezable CreateInstanceCore()
         {
-            // O sistema de animação do WPF clona easing functions durante Storyboard.Begin().
-            // Sem este override, InvalidOperationException em tempo de execução.
             return new SpringEase
             {
                 DampingRatio = this.DampingRatio,
@@ -124,14 +151,11 @@ namespace DynamicIslandWindows
         /// <summary>
         /// Retorna o TimeSpan ideal para usar como Duration no DoubleAnimation,
         /// calculado a partir dos parâmetros físicos da mola (threshold 0.1%).
-        ///
-        /// Uso:
-        ///   var anim = new DoubleAnimation { Duration = appleSpring.GetSettleTime() };
         /// </summary>
         public TimeSpan GetSettleTime()
         {
-            double omegaN   = (2.0 * Math.PI) / Response;
-            double alpha    = DampingRatio * omegaN;
+            double omegaN = (2.0 * Math.PI) / Response;
+            double alpha = DampingRatio * omegaN;
             double settleSeconds = -Math.Log(0.001) / alpha;
             return TimeSpan.FromSeconds(settleSeconds);
         }

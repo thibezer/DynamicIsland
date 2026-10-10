@@ -12,7 +12,8 @@ namespace DynamicIslandWindows;
 public partial class App : Application
 {
     private static Mutex? _mutex;
-    private const string MutexName = @"Global\DynamicIslandWindows_SingleInstance_Mutex";
+    // Local\ = uma instância por sessão de usuário (com Global\, um segundo usuário logado não conseguia abrir o app)
+    private const string MutexName = @"Local\DynamicIslandWindows_SingleInstance_Mutex";
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -27,11 +28,18 @@ public partial class App : Application
             return;
         }
 
+        // O registro de inicialização com o Windows é sincronizado pela janela, após carregar a configuração
         base.OnStartup(e);
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        try
+        {
+            DynamicIslandWindows.Services.NightLightService.RestoreDefaultGammaRamp();
+        }
+        catch { }
+
         if (_mutex != null)
         {
             try

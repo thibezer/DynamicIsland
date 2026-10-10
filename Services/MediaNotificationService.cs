@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using Windows.Media;
 using Windows.Media.Control;
@@ -8,17 +9,41 @@ using Windows.UI.Notifications.Management;
 
 namespace DynamicIslandWindows.Services
 {
+    /// <summary>
+    /// Estado consolidado de reprodução de mídia ou notificação ativa.
+    /// </summary>
+    public enum MediaMode
+    {
+        Notification,
+        Music
+    }
+
+    public enum MediaCommand
+    {
+        PlayPause,
+        Next,
+        Previous,
+        Shuffle,
+        Repeat
+    }
+
     public class MediaNotificationState
     {
-        public string Mode { get; set; } = "notification";
+        public MediaMode Mode { get; set; } = MediaMode.Notification;
         public string Title { get; set; } = string.Empty;
         public string Subtitle { get; set; } = string.Empty;
-        public string Thumbnail { get; set; } = string.Empty;
+        public byte[]? ThumbnailBytes { get; set; }
+        public string Thumbnail => ThumbnailBytes != null && ThumbnailBytes.Length > 0 ? Convert.ToBase64String(ThumbnailBytes) : string.Empty;
         public bool IsPlaying { get; set; } = false;
     }
 
+    /// <summary>
+    /// Serviço de monitoramento de sessões de mídia (GSMTC) e notificações de sistema (Toast).
+    /// </summary>
     public class MediaNotificationService : IDisposable
     {
+        private static readonly char[] LineSeparators = { '\r', '\n' };
+
         public event EventHandler? StateChanged;
         private bool _listenerSetup = false;
         private bool _disposed = false;
@@ -26,10 +51,14 @@ namespace DynamicIslandWindows.Services
         private GlobalSystemMediaTransportControlsSessionManager? _sessionManager;
         private GlobalSystemMediaTransportControlsSession? _currentSession;
 
+        // Os eventos do GSMTC chegam em threads de background, enquanto GetCurrentStateAsync roda na UI
+        private readonly object _sessionLock = new();
+
         // Cache de metadados e imagem de música
         private string _cachedMusicTitle = string.Empty;
         private string _cachedMusicArtist = string.Empty;
-        private string _cachedMusicThumbnailBase64 = string.Empty;
+        private byte[]? _cachedMusicThumbnailBytes;
+        private bool _noThumbnailAvailable = false;
         private bool _cachedMusicIsPlaying = false;
         private string _lastPlayingAppId = string.Empty;
 
@@ -37,25 +66,35 @@ namespace DynamicIslandWindows.Services
         private string _cachedNotifTitle = string.Empty;
         private string _cachedNotifContent = string.Empty;
         private string _cachedNotifAppId = string.Empty;
-        private string _cachedNotifAppIconBase64 = string.Empty;
+        private byte[]? _cachedNotifAppIconBytes;
+
+        /// <summary>Obtém o gerenciador de sessões (uma única vez) e assina seus eventos.</summary>
+        private async Task EnsureSessionManagerAsync()
+        {
+            if (_sessionManager != null) return;
+
+            var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
+            if (manager == null) return;
+
+            lock (_sessionLock)
+            {
+                if (_sessionManager != null || _disposed) return; // outra chamada concorrente já inicializou
+                _sessionManager = manager;
+                _sessionManager.CurrentSessionChanged += OnCurrentSessionChanged;
+                _sessionManager.SessionsChanged += OnSessionsChanged;
+            }
+            UpdateCurrentSession();
+        }
 
         public async Task InitializeAsync()
         {
             try
             {
-                if (_sessionManager == null)
-                {
-                    _sessionManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
-                    if (_sessionManager != null)
-                    {
-                        _sessionManager.CurrentSessionChanged += OnCurrentSessionChanged;
-                        UpdateCurrentSession();
-                    }
-                }
+                await EnsureSessionManagerAsync();
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[MediaManagerInit] {ex.Message}");
+                Debug.WriteLine($"[MediaNotificationService.InitializeAsync] MediaManager: {ex.Message}");
             }
 
             if (_listenerSetup) return;
@@ -71,7 +110,7 @@ namespace DynamicIslandWindows.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[Notifications] {ex.Message}");
+                Debug.WriteLine($"[MediaNotificationService.InitializeAsync] Notifications: {ex.Message}");
             }
         }
 
@@ -81,14 +120,30 @@ namespace DynamicIslandWindows.Services
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        private void UpdateCurrentSession()
+        private void OnSessionsChanged(GlobalSystemMediaTransportControlsSessionManager sender, SessionsChangedEventArgs args)
         {
-            if (_sessionManager == null) return;
+            // A lista de sessões mudou (ex.: o player foi fechado e reaberto). O app pode ter criado uma
+            // sessão nova com o mesmo AppUserModelId, então reassina os eventos incondicionalmente.
+            UpdateCurrentSession(force: true);
+            StateChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void UpdateCurrentSession(bool force = false)
+        {
+            lock (_sessionLock)
+            {
+                UpdateCurrentSessionCore(force);
+            }
+        }
+
+        private void UpdateCurrentSessionCore(bool force)
+        {
+            if (_sessionManager == null || _disposed) return;
 
             var newSession = _sessionManager.GetCurrentSession();
 
             // Verifica se a sessão realmente mudou
-            bool sessionChanged = false;
+            bool sessionChanged = force;
             if (_currentSession == null && newSession != null)
             {
                 sessionChanged = true;
@@ -99,7 +154,7 @@ namespace DynamicIslandWindows.Services
             }
             else if (_currentSession != null && newSession != null)
             {
-                sessionChanged = _currentSession.SourceAppUserModelId != newSession.SourceAppUserModelId;
+                sessionChanged |= _currentSession.SourceAppUserModelId != newSession.SourceAppUserModelId;
             }
 
             if (!sessionChanged) return;
@@ -112,7 +167,10 @@ namespace DynamicIslandWindows.Services
                     _currentSession.PlaybackInfoChanged -= OnSessionPlaybackInfoChanged;
                     _currentSession.MediaPropertiesChanged -= OnSessionMediaPropertiesChanged;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[MediaNotificationService.UpdateCurrentSession] Desinscrição: {ex.Message}");
+                }
             }
 
             _currentSession = newSession;
@@ -125,7 +183,10 @@ namespace DynamicIslandWindows.Services
                     _currentSession.PlaybackInfoChanged += OnSessionPlaybackInfoChanged;
                     _currentSession.MediaPropertiesChanged += OnSessionMediaPropertiesChanged;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[MediaNotificationService.UpdateCurrentSession] Inscrição: {ex.Message}");
+                }
             }
         }
 
@@ -136,7 +197,8 @@ namespace DynamicIslandWindows.Services
 
         private void OnSessionMediaPropertiesChanged(GlobalSystemMediaTransportControlsSession sender, MediaPropertiesChangedEventArgs args)
         {
-            _cachedMusicThumbnailBase64 = string.Empty;
+            _cachedMusicThumbnailBytes = null;
+            _noThumbnailAvailable = false;
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -150,22 +212,11 @@ namespace DynamicIslandWindows.Services
             var state = new MediaNotificationState();
             try
             {
-                if (_sessionManager == null)
-                {
-                    _sessionManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
-                    if (_sessionManager != null)
-                    {
-                        _sessionManager.CurrentSessionChanged += OnCurrentSessionChanged;
-                        UpdateCurrentSession();
-                    }
-                }
-                else
-                {
-                    // Garante que o estado de _currentSession esteja atualizado se a API do Windows falhar em disparar os eventos
-                    UpdateCurrentSession();
-                }
+                await EnsureSessionManagerAsync();
+                UpdateCurrentSession();
 
-                var session = _currentSession;
+                GlobalSystemMediaTransportControlsSession? session;
+                lock (_sessionLock) { session = _currentSession; }
                 if (session != null)
                 {
                     GlobalSystemMediaTransportControlsSessionPlaybackStatus playbackStatus = GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed;
@@ -174,92 +225,93 @@ namespace DynamicIslandWindows.Services
                         var playbackInfo = session.GetPlaybackInfo();
                         playbackStatus = playbackInfo?.PlaybackStatus ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed;
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MediaNotificationService.GetCurrentStateAsync] PlaybackStatus: {ex.Message}");
+                    }
 
                     string currentAppId = string.Empty;
                     try
                     {
                         currentAppId = session.SourceAppUserModelId;
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MediaNotificationService.GetCurrentStateAsync] SourceAppId: {ex.Message}");
+                    }
 
-                    // Se a sessão estiver tocando, ela passa a ser a sessão ativa recente
                     if (playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
                     {
                         _lastPlayingAppId = currentAppId;
                     }
 
-                    // Se a sessão atual estiver pausada mas não for a sessão do app que estava tocando ativamente recente
-                    // (ou seja, é um app em segundo plano zumbi), nós ignoramos e tratamos como inativa
+                    // Sessão pausada de outro app que não o último a tocar é "zumbi". Sem histórico
+                    // (app aberto com a música já pausada), a sessão é exibida normalmente.
                     bool isZombieSession = playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused &&
-                                           (string.IsNullOrEmpty(_lastPlayingAppId) || currentAppId != _lastPlayingAppId);
+                                           !string.IsNullOrEmpty(_lastPlayingAppId) && currentAppId != _lastPlayingAppId;
 
                     if (playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Stopped ||
                         playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed ||
                         isZombieSession)
                     {
-                        state.Mode = "notification";
-                        var (notifTitle, notifContent, appIcon) = await GetLatestNotificationAsync();
+                        state.Mode = MediaMode.Notification;
+                        var (notifTitle, notifContent, appIconBytes) = await GetLatestNotificationAsync();
                         state.Title = notifTitle;
                         state.Subtitle = notifContent;
-                        state.Thumbnail = appIcon;
+                        state.ThumbnailBytes = appIconBytes;
                     }
                     else
                     {
-                        state.Mode = "music";
+                        state.Mode = MediaMode.Music;
                         state.IsPlaying = playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
 
                         var info = await session.TryGetMediaPropertiesAsync();
-                        var title = string.IsNullOrEmpty(info.Title) ? "Nenhuma música" : info.Title;
-                        var artist = string.IsNullOrEmpty(info.Artist) ? "Nenhum artista" : info.Artist;
+                        var title = string.IsNullOrEmpty(info?.Title) ? "Nenhuma música" : info.Title;
+                        var artist = string.IsNullOrEmpty(info?.Artist) ? "Nenhum artista" : info.Artist;
 
                         state.Title = title;
                         state.Subtitle = artist;
 
-                        // Se a música mudou, invalida o cache do thumbnail para forçar nova verificação
                         if (title != _cachedMusicTitle || artist != _cachedMusicArtist)
                         {
-                            _cachedMusicThumbnailBase64 = string.Empty;
+                            _cachedMusicThumbnailBytes = null;
+                            _noThumbnailAvailable = false;
                         }
 
-                        if (!string.IsNullOrEmpty(_cachedMusicThumbnailBase64))
+                        if (_cachedMusicThumbnailBytes != null)
                         {
-                            state.Thumbnail = _cachedMusicThumbnailBase64 == "NO_THUMBNAIL" ? string.Empty : _cachedMusicThumbnailBase64;
+                            state.ThumbnailBytes = _cachedMusicThumbnailBytes;
+                        }
+                        else if (!_noThumbnailAvailable && info?.Thumbnail != null)
+                        {
+                            try
+                            {
+                                using var stream = await info.Thumbnail.OpenReadAsync();
+                                if (stream.Size > 0)
+                                {
+                                    using var inputStream = stream.GetInputStreamAt(0);
+                                    using var reader = new Windows.Storage.Streams.DataReader(inputStream);
+                                    await reader.LoadAsync((uint)stream.Size);
+                                    byte[] bytes = new byte[stream.Size];
+                                    reader.ReadBytes(bytes);
+                                    state.ThumbnailBytes = bytes;
+                                    _cachedMusicThumbnailBytes = bytes;
+                                }
+                                else
+                                {
+                                    _noThumbnailAvailable = true;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"[MediaNotificationService.GetCurrentStateAsync] ThumbnailRead: {ex.Message}");
+                            }
                         }
                         else
                         {
-                            state.Thumbnail = string.Empty;
-
-                            if (info.Thumbnail != null)
-                            {
-                                try
-                                {
-                                    using var stream = await info.Thumbnail.OpenReadAsync();
-                                    if (stream.Size > 0)
-                                    {
-                                        using var inputStream = stream.GetInputStreamAt(0);
-                                        using var reader = new Windows.Storage.Streams.DataReader(inputStream);
-                                        await reader.LoadAsync((uint)stream.Size);
-                                        byte[] bytes = new byte[stream.Size];
-                                        reader.ReadBytes(bytes);
-                                        state.Thumbnail = Convert.ToBase64String(bytes);
-                                        _cachedMusicThumbnailBase64 = state.Thumbnail;
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    Debug.WriteLine($"[Thumbnail] {ex.Message}");
-                                    // Deixa vazio para tentar novamente mais tarde caso seja um problema de carregamento temporário
-                                }
-                            }
-                            else
-                            {
-                                // Não há thumbnail de mídia disponível pelo SO
-                                _cachedMusicThumbnailBase64 = "NO_THUMBNAIL";
-                            }
+                            _noThumbnailAvailable = true;
                         }
 
-                        // Atualiza o cache geral da música (incluindo estado de execução)
                         _cachedMusicTitle = title;
                         _cachedMusicArtist = artist;
                         _cachedMusicIsPlaying = state.IsPlaying;
@@ -267,16 +319,16 @@ namespace DynamicIslandWindows.Services
                 }
                 else
                 {
-                    state.Mode = "notification";
-                    var (notifTitle, notifContent, appIcon) = await GetLatestNotificationAsync();
+                    state.Mode = MediaMode.Notification;
+                    var (notifTitle, notifContent, appIconBytes) = await GetLatestNotificationAsync();
                     state.Title = notifTitle;
                     state.Subtitle = notifContent;
-                    state.Thumbnail = appIcon;
+                    state.ThumbnailBytes = appIconBytes;
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[UpdateMedia] {ex.Message}");
+                Debug.WriteLine($"[MediaNotificationService.GetCurrentStateAsync] Erro geral: {ex.Message}");
                 state.Title = "Erro";
                 state.Subtitle = ex.Message;
             }
@@ -284,58 +336,66 @@ namespace DynamicIslandWindows.Services
             return state;
         }
 
-        private async Task<(string title, string content, string appIcon)> GetLatestNotificationAsync()
+        private async Task<(string title, string content, byte[]? appIconBytes)> GetLatestNotificationAsync()
         {
             const string defaultTitle   = "Sem notificações";
             const string defaultContent = "Tudo limpo por aqui";
             try
             {
-                var listener     = UserNotificationListener.Current;
+                var listener = UserNotificationListener.Current;
                 var accessStatus = await listener.RequestAccessAsync();
                 if (accessStatus != UserNotificationListenerAccessStatus.Allowed)
-                    return (defaultTitle, defaultContent, string.Empty);
+                    return (defaultTitle, defaultContent, null);
 
                 var notifications = await listener.GetNotificationsAsync(NotificationKinds.Toast);
-                int count = notifications.Count;
-                if (count == 0) return (defaultTitle, defaultContent, string.Empty);
+                if (notifications.Count == 0) return (defaultTitle, defaultContent, null);
 
-                var last     = notifications[count - 1];
+                // A ordem retornada não é garantida: escolhe explicitamente a mais recente
+                var last = notifications.OrderByDescending(n => n.CreationTime).First();
                 var bindings = last.Notification.Visual.Bindings;
-                if (bindings.Count == 0) return (defaultTitle, defaultContent, string.Empty);
+                if (bindings.Count == 0) return (defaultTitle, defaultContent, null);
 
                 var elems = bindings[0].GetTextElements();
-                int ec    = elems.Count;
+                int ec = elems.Count;
 
                 string title = defaultTitle;
                 string content = defaultContent;
 
-                if (ec >= 3)
+                string GetFirstLine(string text)
                 {
-                    title = elems[1].Text;
-                    content = elems[2].Text;
+                    if (string.IsNullOrEmpty(text)) return text;
+                    var index = text.IndexOfAny(LineSeparators);
+                    if (index >= 0)
+                    {
+                        return text.Substring(0, index).Trim();
+                    }
+                    return text.Trim();
                 }
-                else if (ec == 2)
+
+                // Em toasts ToastGeneric o 1º texto é o título e os seguintes são o corpo
+                if (ec >= 1 && !string.IsNullOrWhiteSpace(elems[0].Text))
                 {
-                    title = elems[0].Text;
-                    content = elems[1].Text;
+                    title = GetFirstLine(elems[0].Text);
                 }
-                else if (ec == 1)
+                for (int i = 1; i < ec; i++)
                 {
-                    title = elems[0].Text;
+                    if (!string.IsNullOrWhiteSpace(elems[i].Text))
+                    {
+                        content = GetFirstLine(elems[i].Text);
+                        break;
+                    }
                 }
 
                 string appName = last.AppInfo.AppUserModelId ?? string.Empty;
 
-                // Se título, conteúdo e aplicativo forem idênticos ao cache, retornamos o cache
                 if (title == _cachedNotifTitle && content == _cachedNotifContent && appName == _cachedNotifAppId)
                 {
-                    return (_cachedNotifTitle, _cachedNotifContent, _cachedNotifAppIconBase64);
+                    return (_cachedNotifTitle, _cachedNotifContent, _cachedNotifAppIconBytes);
                 }
 
-                string appIcon = string.Empty;
+                byte[]? appIconBytes = null;
 
-                // Se o aplicativo mudou ou não temos o ícone dele no cache, carregamos
-                if (appName != _cachedNotifAppId || string.IsNullOrEmpty(_cachedNotifAppIconBase64))
+                if (appName != _cachedNotifAppId || _cachedNotifAppIconBytes == null)
                 {
                     try
                     {
@@ -350,68 +410,63 @@ namespace DynamicIslandWindows.Services
                                 await reader.LoadAsync((uint)stream.Size);
                                 byte[] bytes = new byte[stream.Size];
                                 reader.ReadBytes(bytes);
-                                appIcon = Convert.ToBase64String(bytes);
+                                appIconBytes = bytes;
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"[AppLogo] {ex.Message}");
+                        Debug.WriteLine($"[MediaNotificationService.GetLatestNotificationAsync] AppLogo: {ex.Message}");
                     }
                 }
                 else
                 {
-                    // Se o app for o mesmo, reaproveita o ícone cacheado
-                    appIcon = _cachedNotifAppIconBase64;
+                    appIconBytes = _cachedNotifAppIconBytes;
                 }
 
-                // Atualiza o cache de notificações
                 _cachedNotifTitle = title;
                 _cachedNotifContent = content;
                 _cachedNotifAppId = appName;
-                _cachedNotifAppIconBase64 = appIcon;
+                _cachedNotifAppIconBytes = appIconBytes;
 
-                return (title, content, appIcon);
+                return (title, content, appIconBytes);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[Notifications] {ex.Message}");
-                return (defaultTitle, defaultContent, string.Empty);
+                Debug.WriteLine($"[MediaNotificationService.GetLatestNotificationAsync] {ex.Message}");
+                return (defaultTitle, defaultContent, null);
             }
         }
 
-        public async Task HandleMediaCommandAsync(string? command)
+        public async Task HandleMediaCommandAsync(MediaCommand command)
         {
-            if (string.IsNullOrEmpty(command)) return;
             try
             {
-                var session = _currentSession;
+                GlobalSystemMediaTransportControlsSession? session;
+                lock (_sessionLock) { session = _currentSession; }
                 if (session == null)
                 {
-                    if (_sessionManager == null)
-                    {
-                        _sessionManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
-                    }
+                    await EnsureSessionManagerAsync();
                     session = _sessionManager?.GetCurrentSession();
                 }
                 if (session == null) return;
 
                 switch (command)
                 {
-                    case "playPause":
-                        var status = session.GetPlaybackInfo().PlaybackStatus;
+                    case MediaCommand.PlayPause:
+                        var status = session.GetPlaybackInfo()?.PlaybackStatus;
                         if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
                             await session.TryPauseAsync();
                         else
                             await session.TryPlayAsync();
                         break;
-                    case "next":
+                    case MediaCommand.Next:
                         await session.TrySkipNextAsync();
                         break;
-                    case "previous":
+                    case MediaCommand.Previous:
                         await session.TrySkipPreviousAsync();
                         break;
-                    case "shuffle":
+                    case MediaCommand.Shuffle:
                         try
                         {
                             var playback = session.GetPlaybackInfo();
@@ -421,9 +476,12 @@ namespace DynamicIslandWindows.Services
                                 await session.TryChangeShuffleActiveAsync(!isShuffle);
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[MediaNotificationService.HandleMediaCommandAsync] Shuffle: {ex.Message}");
+                        }
                         break;
-                    case "repeat":
+                    case MediaCommand.Repeat:
                         try
                         {
                             var playback = session.GetPlaybackInfo();
@@ -436,20 +494,26 @@ namespace DynamicIslandWindows.Services
                                 await session.TryChangeAutoRepeatModeAsync(nextMode);
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[MediaNotificationService.HandleMediaCommandAsync] Repeat: {ex.Message}");
+                        }
                         break;
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[MediaCmd] {ex.Message}");
+                Debug.WriteLine($"[MediaNotificationService.HandleMediaCommandAsync] {ex.Message}");
             }
         }
 
         public void Dispose()
         {
-            if (_disposed) return;
-            _disposed = true;
+            lock (_sessionLock)
+            {
+                if (_disposed) return;
+                _disposed = true; // Impede que eventos atrasados reassinem sessões
+            }
 
             if (_currentSession != null)
             {
@@ -458,7 +522,10 @@ namespace DynamicIslandWindows.Services
                     _currentSession.PlaybackInfoChanged -= OnSessionPlaybackInfoChanged;
                     _currentSession.MediaPropertiesChanged -= OnSessionMediaPropertiesChanged;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[MediaNotificationService.Dispose] Session: {ex.Message}");
+                }
                 _currentSession = null;
             }
 
@@ -467,8 +534,12 @@ namespace DynamicIslandWindows.Services
                 try
                 {
                     _sessionManager.CurrentSessionChanged -= OnCurrentSessionChanged;
+                    _sessionManager.SessionsChanged -= OnSessionsChanged;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[MediaNotificationService.Dispose] SessionManager: {ex.Message}");
+                }
                 _sessionManager = null;
             }
 
@@ -481,7 +552,7 @@ namespace DynamicIslandWindows.Services
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[NotificationsDispose] {ex.Message}");
+                    Debug.WriteLine($"[MediaNotificationService.Dispose] Listener: {ex.Message}");
                 }
                 _listenerSetup = false;
             }

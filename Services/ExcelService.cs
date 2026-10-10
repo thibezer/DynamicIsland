@@ -60,7 +60,7 @@ namespace DynamicIslandWindows.Services
             catch (COMException comEx)
             {
                 Debug.WriteLine($"[Excel COM] {comEx.Message}");
-                if (comEx.ErrorCode == -2147221005) // 0x800401E3 MK_E_UNAVAILABLE (Excel não está aberto)
+                if (comEx.ErrorCode == unchecked((int)0x800401E3)) // MK_E_UNAVAILABLE (Excel não está aberto)
                 {
                     ShowExcelError("Nenhuma janela ativa do Excel foi encontrada.\n\nPor favor, abra o Excel e selecione uma célula antes de exportar.");
                 }

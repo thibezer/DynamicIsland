@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:DynamicIslandWindows"
+        xmlns:ctrl="clr-namespace:DynamicIslandWindows.Controls"
         Title="Dynamic Island Nativa" 
         Height="425" Width="430"
         WindowStyle="None" 
@@ -51,35 +52,69 @@
                 </Setter.Value>
             </Setter>
         </Style>
-        <!-- 
+
+        <!-- Mesmo visual do HexTextBoxStyle, para o campo de senha do Wi-Fi (caracteres mascarados) -->
+        <Style x:Key="IslandPasswordBoxStyle" TargetType="PasswordBox">
+            <Setter Property="Background" Value="#FF161618" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderBrush" Value="#FF3A3A3C" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI" />
+            <Setter Property="CaretBrush" Value="White" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border Name="Border" CornerRadius="5" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                            <ScrollViewer x:Name="PART_ContentHost" Focusable="false" Padding="{TemplateBinding Padding}" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="Border" Property="BorderBrush" Value="{DynamicResource ThemeAccentBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!--
           ESTILO PREMIUM DO SLIDER ESTILO WINDOWS 11 NOTIFICATION CENTER (MATTER THEME)
           - Trilha espessa de 12px com CornerRadius de 6px (Capsule Shape)
           - Cor ativa Coral (#FFF26A59) e inativa Charcoal (#FF161618)
-          - Sem botão de arrasto visível, idêntico à referência do Windhawk
+          - Suporte a arraste contínuo suave (scrubbing), clique direto e rotação de roda do mouse (MouseWheel)
         -->
         <Style x:Key="ModernFluentSliderStyle" TargetType="Slider">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="MinHeight" Value="24" />
             <Setter Property="Height" Value="24" />
+            <Setter Property="Cursor" Value="Hand" />
             <Setter Property="IsMoveToPointEnabled" Value="True" />
             <Setter Property="VerticalAlignment" Value="Center" />
+            <EventSetter Event="PreviewMouseLeftButtonDown" Handler="Slider_PreviewMouseLeftButtonDown" />
+            <EventSetter Event="PreviewMouseMove" Handler="Slider_PreviewMouseMove" />
+            <EventSetter Event="PreviewMouseLeftButtonUp" Handler="Slider_PreviewMouseLeftButtonUp" />
+            <EventSetter Event="PreviewMouseWheel" Handler="Slider_PreviewMouseWheel" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Slider">
                         <Grid Background="Transparent" Height="24">
-                               <!-- Trilha de fundo, representando a parte não preenchida (vinculada ao fundo) -->
-                               <Border x:Name="TrackBackground" 
-                                       Background="{DynamicResource IslandBackgroundBrush}" 
-                                       Height="12" 
-                                       CornerRadius="6" 
-                                       VerticalAlignment="Center" />
+                            <!-- Trilha de fundo, representando a parte não preenchida (vinculada ao fundo) -->
+                            <Border x:Name="TrackBackground" 
+                                    Background="{DynamicResource IslandBackgroundBrush}" 
+                                    Height="12" 
+                                    CornerRadius="6" 
+                                    VerticalAlignment="Center" 
+                                    IsHitTestVisible="False" />
                             
                             <!-- Track ativa do slider -->
-                            <Track x:Name="PART_Track">
+                            <Track x:Name="PART_Track" IsHitTestVisible="False">
                                 <!-- Área preenchida à esquerda (Coral idêntico à imagem) -->
                                 <Track.DecreaseRepeatButton>
-                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}">
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}" IsHitTestVisible="False" Focusable="False">
                                         <RepeatButton.Style>
                                             <Style TargetType="RepeatButton">
                                                 <Setter Property="Template">
@@ -96,7 +131,7 @@
                                 
                                 <!-- Área vazia à direita (Transparente para revelar o TrackBackground) -->
                                 <Track.IncreaseRepeatButton>
-                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}">
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}" IsHitTestVisible="False" Focusable="False">
                                         <RepeatButton.Style>
                                             <Style TargetType="RepeatButton">
                                                 <Setter Property="Template">
@@ -111,9 +146,9 @@
                                     </RepeatButton>
                                 </Track.IncreaseRepeatButton>
                                 
-                                <!-- Botão invisível de arrasto (Thumb) com área de colisão maior de 24x24 para arrastar mais fácil -->
+                                <!-- Botão invisível de arrasto (Thumb) -->
                                 <Track.Thumb>
-                                    <Thumb x:Name="PART_Thumb" Width="0" Height="24" Focusable="False">
+                                    <Thumb x:Name="PART_Thumb" Width="0" Height="24" Focusable="False" IsHitTestVisible="False">
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="Thumb">
                                                 <Grid Background="Transparent" Width="0" Height="24" />
@@ -261,7 +296,10 @@
                     DragOver="Window_DragOver"
                     DragLeave="Window_DragLeave"
                     Drop="Window_Drop"
-                    MouseLeftButtonDown="IslandBorder_MouseLeftButtonDown">
+                    MouseLeftButtonDown="IslandBorder_MouseLeftButtonDown"
+                    PreviewMouseMove="IslandBorder_PreviewMouseMove"
+                    PreviewMouseLeftButtonUp="IslandBorder_PreviewMouseLeftButtonUp"
+                    PreviewMouseWheel="IslandBorder_PreviewMouseWheel">
             
         <Grid Name="mainContentGrid" VerticalAlignment="Center">
             <!-- 
@@ -442,7 +480,7 @@
                             <StackPanel>
                                 <TextBlock Style="{StaticResource FluentText}" Name="txtWifiPasswordPrompt" Text="Introduza a palavra-passe" FontSize="11" FontWeight="Bold" Margin="0,0,0,8" />
                                 
-                                <TextBox Name="txtWifiPassword" Style="{StaticResource HexTextBoxStyle}" Height="32" Margin="0,0,0,10" GotFocus="TextBox_GotFocus" LostFocus="TextBox_LostFocus" HorizontalContentAlignment="Left" Padding="8,4" />
+                                <PasswordBox Name="txtWifiPassword" Style="{StaticResource IslandPasswordBoxStyle}" Height="32" Margin="0,0,0,10" GotFocus="TextBox_GotFocus" LostFocus="TextBox_LostFocus" />
                                 
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -684,7 +722,7 @@
                 <!-- 
                   ══ Row 0: Drop Zone (Painel de Arquivo Arrastado - Sem Bordas Internas) ══════════════════════
                 -->
-                <Grid Name="dropZonePanel" Grid.Row="0" Visibility="Collapsed" Margin="0,3.5,0,0">
+                <Grid Name="dropZonePanel" Grid.Row="0" Visibility="Collapsed" Margin="8,6,8,8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -731,7 +769,7 @@
                     </Border>
 
                     <!-- Botão de Ação Secundária (Cancelar) -->
-                    <Border Grid.Row="2" CornerRadius="6" Padding="8" MouseLeftButtonDown="CancelDrop_Click" Cursor="Hand">
+                    <Border Grid.Row="2" CornerRadius="{Binding ElementName=islandBorder, Path=CornerRadius, Converter={StaticResource ConcentricRadiusConverter}, ConverterParameter=8.5}" Padding="8" MouseLeftButtonDown="CancelDrop_Click" Cursor="Hand">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource TactileBorderButtonStyle}">
                                 <Setter Property="Background" Value="{DynamicResource IslandInactiveBrush}" />
@@ -770,9 +808,10 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <Grid Grid.Column="0" Width="30" Height="30" Margin="0,0,8,0" VerticalAlignment="Center">
+                    <Grid Grid.Column="0" Width="30" Height="30" Margin="0,0,8,0" VerticalAlignment="Center" MouseDown="MiniIconContainer_MouseDown" Background="Transparent">
                         <Border Name="miniThumbBorder" Width="30" Height="30" CornerRadius="8" ClipToBounds="True" Background="#FF3A3A3C" VerticalAlignment="Center" Visibility="Collapsed" />
                         <TextBlock Name="txtMiniIcon" Style="{StaticResource FluentIcon}" FontSize="16" Text="&#xE990;" Foreground="#4CC2FF" VerticalAlignment="Center" />
+                        <ctrl:DinoEasterEgg x:Name="dinoEasterEgg" Scale="0.2" BodyColor="#FFFFFF" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Grid>
 
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,2,0">
@@ -825,80 +864,76 @@
                                    VerticalAlignment="Center" />
                     </Grid>
 
-                    <!-- Painel Expandido do Pomodoro (Exibe configurações e controles) -->
-                    <Grid Name="pomodoroExpandedGrid" Visibility="Collapsed" Opacity="0" Margin="12,10,12,10">
+                    <!-- Painel Expandido do Pomodoro (Exibe configurações e controles de forma compacta) -->
+                    <Grid Name="pomodoroExpandedGrid" Visibility="Collapsed" Opacity="0" Margin="10,8,10,8">
                         <Grid.RowDefinitions>
-                            <!-- Linha 0: Configurações de Trabalho / Descanso -->
+                            <!-- Linha 0: Inputs de Foco e Pausa -->
                             <RowDefinition Height="Auto" />
-                            <!-- Linha 1: Espaçador -->
-                            <RowDefinition Height="*" />
-                            <!-- Linha 2: Cronômetro e Botões -->
+                            <!-- Linha 1: Cronômetro e Botões -->
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
-                        <!-- Configurações de Trabalho/Descanso (Topo) -->
-                        <Grid Grid.Row="0">
+                        <!-- Linha 0: Configurações Rápidas (Foco / Pausa) -->
+                        <Grid Grid.Row="0" Margin="0,0,0,6">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="6" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
 
-                            <!-- Trabalho -->
-                            <StackPanel Grid.Column="0" HorizontalAlignment="Center">
-                                <TextBlock Style="{StaticResource FluentText}" 
-                                           Text="Trabalho" 
-                                           FontSize="10.5" 
-                                           HorizontalAlignment="Center" 
-                                           Opacity="0.8" 
-                                           Margin="0,0,0,4"/>
-                                <Border Background="#D5000000" CornerRadius="8" Width="60" Height="26">
-                                    <TextBox Name="txtWorkTimeInput"
+                            <!-- Foco (Trabalho) -->
+                            <Border Grid.Column="0" Background="#26FFFFFF" CornerRadius="6" Height="23" Padding="5,0">
+                                <Grid VerticalAlignment="Center">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Foco" Style="{StaticResource FluentTextSec}" FontSize="9" VerticalAlignment="Center" Margin="0,0,2,0" Opacity="0.8" />
+                                    <TextBox Grid.Column="1" Name="txtWorkTimeInput"
                                              Text="25:00"
                                              Background="Transparent"
                                              Foreground="White"
                                              BorderThickness="0"
-                                             FontSize="11.5"
-                                             FontWeight="Bold"
-                                             HorizontalAlignment="Center"
+                                             FontSize="10"
+                                             FontWeight="SemiBold"
+                                             HorizontalAlignment="Stretch"
                                              VerticalAlignment="Center"
                                              HorizontalContentAlignment="Center"
                                              VerticalContentAlignment="Center"
                                              GotFocus="TextBox_GotFocus"
                                              LostFocus="TxtWorkTimeInput_LostFocus"
                                              KeyDown="TxtTimeInput_KeyDown"/>
-                                </Border>
-                            </StackPanel>
+                                </Grid>
+                            </Border>
 
-                            <!-- Descanso -->
-                            <StackPanel Grid.Column="2" HorizontalAlignment="Center">
-                                <TextBlock Style="{StaticResource FluentText}" 
-                                           Text="Descanso" 
-                                           FontSize="10.5" 
-                                           HorizontalAlignment="Center" 
-                                           Opacity="0.8" 
-                                           Margin="0,0,0,4"/>
-                                <Border Background="#D5000000" CornerRadius="8" Width="60" Height="26">
-                                    <TextBox Name="txtBreakTimeInput"
+                            <!-- Pausa (Descanso) -->
+                            <Border Grid.Column="2" Background="#26FFFFFF" CornerRadius="6" Height="23" Padding="5,0">
+                                <Grid VerticalAlignment="Center">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Pausa" Style="{StaticResource FluentTextSec}" FontSize="9" VerticalAlignment="Center" Margin="0,0,2,0" Opacity="0.8" />
+                                    <TextBox Grid.Column="1" Name="txtBreakTimeInput"
                                              Text="05:00"
                                              Background="Transparent"
                                              Foreground="White"
                                              BorderThickness="0"
-                                             FontSize="11.5"
-                                             FontWeight="Bold"
-                                             HorizontalAlignment="Center"
+                                             FontSize="10"
+                                             FontWeight="SemiBold"
+                                             HorizontalAlignment="Stretch"
                                              VerticalAlignment="Center"
                                              HorizontalContentAlignment="Center"
                                              VerticalContentAlignment="Center"
                                              GotFocus="TextBox_GotFocus"
                                              LostFocus="TxtBreakTimeInput_LostFocus"
                                              KeyDown="TxtTimeInput_KeyDown"/>
-                                </Border>
-                            </StackPanel>
+                                </Grid>
+                            </Border>
                         </Grid>
 
-                        <!-- Cronômetro e Controles (Base) -->
-                        <Grid Grid.Row="2" Margin="0,0,0,2">
+                        <!-- Linha 1: Cronômetro e Controles -->
+                        <Grid Grid.Row="1" VerticalAlignment="Center">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -909,7 +944,7 @@
                                        Grid.Column="0"
                                        Text="25:00" 
                                        Style="{StaticResource FluentText}" 
-                                       FontSize="23" 
+                                       FontSize="18" 
                                        FontWeight="Bold" 
                                        VerticalAlignment="Center"
                                        HorizontalAlignment="Left"
@@ -919,21 +954,21 @@
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                 <!-- Play/Pause -->
                                 <Border Style="{StaticResource TactileBorderButtonStyle}" 
-                                        Width="26" Height="26" CornerRadius="13" 
-                                        Background="#D5000000" Margin="0,0,6,0" 
+                                        Width="24" Height="24" CornerRadius="12" 
+                                        Background="#33FFFFFF" Margin="0,0,4,0" 
                                         Cursor="Hand" MouseLeftButtonDown="PomodoroPlayPause_Click">
                                     <TextBlock Name="icoPomodoroPlayPause" 
                                                Style="{StaticResource FluentIcon}" 
-                                               Text="&#xE768;" FontSize="11" 
+                                               Text="&#xE768;" FontSize="10" 
                                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                                 </Border>
                                 <!-- Reset -->
                                 <Border Style="{StaticResource TactileBorderButtonStyle}" 
-                                        Width="26" Height="26" CornerRadius="13" 
-                                        Background="#D5000000" 
+                                        Width="24" Height="24" CornerRadius="12" 
+                                        Background="#22FFFFFF" 
                                         Cursor="Hand" MouseLeftButtonDown="PomodoroReset_Click">
                                     <TextBlock Style="{StaticResource FluentIcon}" 
-                                               Text="&#xE72C;" FontSize="11" 
+                                               Text="&#xE72C;" FontSize="10" 
                                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                                 </Border>
                             </StackPanel>
