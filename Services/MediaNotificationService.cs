@@ -33,6 +33,8 @@ namespace DynamicIslandWindows.Services
         public string Title { get; set; } = string.Empty;
         public string Subtitle { get; set; } = string.Empty;
         public byte[]? ThumbnailBytes { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        [Obsolete("Utilize ThumbnailBytes para evitar conversões e alocações de string.")]
         public string Thumbnail => ThumbnailBytes != null && ThumbnailBytes.Length > 0 ? Convert.ToBase64String(ThumbnailBytes) : string.Empty;
         public bool IsPlaying { get; set; } = false;
     }

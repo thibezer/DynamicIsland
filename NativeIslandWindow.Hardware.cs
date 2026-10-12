@@ -15,6 +15,7 @@ namespace DynamicIslandWindows
         private void Slider_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (sender is not Slider slider) return;
+            slider.BeginAnimation(Slider.ValueProperty, null);
             _activeDraggingSlider = slider;
             _isDraggingSlider = true;
             slider.CaptureMouse();
@@ -49,7 +50,13 @@ namespace DynamicIslandWindows
             if (sender is not Slider slider) return;
             double step = 2.0; // Ajuste fino de 2% por passo de scroll
             double delta = (e.Delta > 0) ? step : -step;
-            slider.Value = Math.Clamp(slider.Value + delta, slider.Minimum, slider.Maximum);
+            double targetVal = Math.Clamp(slider.Value + delta, slider.Minimum, slider.Maximum);
+
+            var anim = new System.Windows.Media.Animation.DoubleAnimation(slider.Value, targetVal, TimeSpan.FromMilliseconds(90))
+            {
+                EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
+            };
+            slider.BeginAnimation(Slider.ValueProperty, anim);
             e.Handled = true;
         }
 
@@ -229,7 +236,7 @@ namespace DynamicIslandWindows
                 targetIcon = Colors.White;
             }
 
-            var duration = TimeSpan.FromMilliseconds(250);
+            var duration = TimeSpan.FromMilliseconds(150);
 
             // Anima fundo
             AnimateColor(border, Border.BackgroundProperty, targetBg, duration);

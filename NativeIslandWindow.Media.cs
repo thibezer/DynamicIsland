@@ -121,6 +121,7 @@ namespace DynamicIslandWindows
                         AnimateTextChange(txtMiniTitle, state.Title);
                         AnimateTextChange(txtMiniSubtitle, state.Subtitle);
                         txtMiniPlayIcon.Text = expectedPlayGlyph;
+                        UpdateWaveformAnimation(state.IsPlaying);
 
                         if (thumbUnchanged)
                         {
@@ -149,6 +150,7 @@ namespace DynamicIslandWindows
                     else
                     {
                         _lastThumbBytes = null;
+                        UpdateWaveformAnimation(false);
                         miniMediaControls.Visibility = Visibility.Collapsed;
                         AnimateTextChange(txtMiniTitle, state.Title);
                         AnimateTextChange(txtMiniSubtitle, state.Subtitle);
@@ -212,7 +214,7 @@ namespace DynamicIslandWindows
                 textWidth = Math.Min(textWidth, 180); // Respeita o MaxWidth de 180 dos TextBlocks
 
                 double iconWidth = 38; // 30px ícone + 8px margem
-                double controlsWidth = hasMediaControls ? 64 : 0; // 2 botões de 30px + margem
+                double controlsWidth = hasMediaControls ? 82 : 0; // Waveform animado (18px) + 2 botões de controle (64px)
                 double padding = 34; // Espaçamento e respiro das bordas arredondadas da pílula
 
                 double totalWidth = iconWidth + textWidth + 2 + controlsWidth + padding;
@@ -389,8 +391,60 @@ namespace DynamicIslandWindows
             }
         }
 
+        // ─── Equalizador / Waveform Animado Estilo iOS ──────────────────────────
+        private bool _isWaveformAnimating = false;
+
+        private void UpdateWaveformAnimation(bool isPlaying)
+        {
+            if (waveBar1 == null || waveBar2 == null || waveBar3 == null || waveBar4 == null) return;
+
+            if (isPlaying)
+            {
+                if (_isWaveformAnimating) return;
+                _isWaveformAnimating = true;
+
+                AnimateWaveBar(waveBar1, minH: 3, maxH: 10, durationMs: 420);
+                AnimateWaveBar(waveBar2, minH: 5, maxH: 13, durationMs: 340);
+                AnimateWaveBar(waveBar3, minH: 4, maxH: 11, durationMs: 480);
+                AnimateWaveBar(waveBar4, minH: 2, maxH: 8,  durationMs: 390);
+            }
+            else
+            {
+                if (!_isWaveformAnimating && waveBar1.Height == 4) return;
+                _isWaveformAnimating = false;
+
+                StopWaveBar(waveBar1, 4);
+                StopWaveBar(waveBar2, 7);
+                StopWaveBar(waveBar3, 5);
+                StopWaveBar(waveBar4, 3);
+            }
+        }
+
+        private static void AnimateWaveBar(Border bar, double minH, double maxH, int durationMs)
+        {
+            bar.BeginAnimation(FrameworkElement.HeightProperty, null);
+            var anim = new DoubleAnimation(minH, maxH, TimeSpan.FromMilliseconds(durationMs))
+            {
+                AutoReverse = true,
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+            };
+            bar.BeginAnimation(FrameworkElement.HeightProperty, anim);
+        }
+
+        private static void StopWaveBar(Border bar, double restH)
+        {
+            bar.BeginAnimation(FrameworkElement.HeightProperty, null);
+            var settle = new DoubleAnimation(bar.ActualHeight > 0 ? bar.ActualHeight : bar.Height, restH, TimeSpan.FromMilliseconds(180))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            bar.BeginAnimation(FrameworkElement.HeightProperty, settle);
+        }
+
         private void DisposeMedia()
         {
+            UpdateWaveformAnimation(false);
             if (_mediaService != null)
             {
                 _mediaService.StateChanged -= MediaService_StateChanged;

@@ -46,6 +46,7 @@ namespace DynamicIslandWindows
         private const uint SWP_NOMOVE     = 0x0002;
         private const uint SWP_NOZORDER   = 0x0004;
         private const uint SWP_NOACTIVATE = 0x0010;
+        private const uint SWP_FRAMECHANGED = 0x0020;
 
         [DllImport("shell32.dll")]
         private static extern int SHQueryUserNotificationState(out QUERY_USER_NOTIFICATION_STATE pquns);
@@ -120,6 +121,7 @@ namespace DynamicIslandWindows
         private DispatcherTimer? _wifiAutoRefreshTimer;
         private PomodoroService? _pomodoroService;
         private DispatcherTimer? _pomodoroCloseTimer;
+        private DispatcherTimer? _volumeHudTimer;
         private CancellationTokenSource? _displayChangeCts;
 
         private bool _dinoEasterEggActive = false;
@@ -507,8 +509,31 @@ namespace DynamicIslandWindows
                         txtVolumeVal.Text = $"{newVol}%";
                     }
                     UpdateMuteUI();
+
+                    // Micro-HUD tátil de volume na pílula compacta fechada
+                    if (!_isIslandOpen && txtMiniSubtitle != null)
+                    {
+                        string volIcon = newVol == 0 ? "🔇" : (newVol < 33 ? "🔈" : (newVol < 66 ? "🔉" : "🔊"));
+                        AnimateTextChange(txtMiniSubtitle, $"{volIcon} Volume {newVol}%");
+
+                        _volumeHudTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+                        _volumeHudTimer.Stop();
+                        _volumeHudTimer.Tick -= VolumeHudTimer_Tick;
+                        _volumeHudTimer.Tick += VolumeHudTimer_Tick;
+                        _volumeHudTimer.Start();
+                    }
+
                     e.Handled = true;
                 }
+            }
+        }
+
+        private async void VolumeHudTimer_Tick(object? sender, EventArgs e)
+        {
+            _volumeHudTimer?.Stop();
+            if (!_isIslandOpen)
+            {
+                await UpdateMediaInfoAsync();
             }
         }
 
@@ -627,38 +652,64 @@ namespace DynamicIslandWindows
             }
         }
 
-        // ─── Motor de Animação por Hardware Puro ──────────────────────────────────
-        private void AnimateBorder(double targetWidth, double targetHeight)
+        // ─── Motor de Animação por Hardware Puro (Apple Spring Assimétrico) ─────────
+        private void AnimateBorder(double targetWidth, double targetHeight, Action? onCompleted = null)
         {
-            var widthSpring = new SpringEase
-            {
-                DampingRatio = 0.85,
-                Response     = 0.55
-            };
-
-            var heightSpring = new SpringEase
-            {
-                DampingRatio = 0.85,
-                Response     = 0.45  // response menor = mais rígida/rápida verticalmente (squash-and-stretch)
-            };
-
             double currentWidth = islandBorder.RenderSize.Width;
             double currentHeight = islandBorder.RenderSize.Height;
             if (currentWidth <= 0) currentWidth = islandBorder.Width;
             if (currentHeight <= 0) currentHeight = islandBorder.Height;
+
+            // Detecta se está expandindo ou contraindo para física assimétrica (Apple HIG)
+            bool isExpanding = targetWidth > currentWidth || targetHeight > currentHeight;
+
+            // Expansão: fluida e amortecida (Response 0.52s / 0.44s)
+            // Contração / Fechamento: snap rápido e enérgico (Response 0.32s / 0.28s)
+            var widthSpring = new SpringEase
+            {
+                DampingRatio = isExpanding ? 0.85 : 0.82,
+                Response     = isExpanding ? 0.52 : 0.32
+            };
+
+            var heightSpring = new SpringEase
+            {
+                DampingRatio = isExpanding ? 0.85 : 0.82,
+                Response     = isExpanding ? 0.44 : 0.28
+            };
 
             var widthDuration = widthSpring.GetSettleTime();
             var heightDuration = heightSpring.GetSettleTime();
 
             var widthAnim = new DoubleAnimation(currentWidth, targetWidth, widthDuration)
             {
-                EasingFunction = widthSpring
+                EasingFunction = widthSpring,
+                FillBehavior = FillBehavior.HoldEnd
             };
 
             var heightAnim = new DoubleAnimation(currentHeight, targetHeight, heightDuration)
             {
-                EasingFunction = heightSpring
+                EasingFunction = heightSpring,
+                FillBehavior = FillBehavior.HoldEnd
             };
+
+            // Garante os cantos concêntricos originais (CornerRadius fixo em 22.5 da casca externa)
+            if (islandBorder.CornerRadius.TopLeft != 22.5)
+            {
+                islandBorder.BeginAnimation(Border.CornerRadiusProperty, null);
+                islandBorder.CornerRadius = new CornerRadius(22.5);
+            }
+
+            if (onCompleted != null)
+            {
+                if (widthDuration >= heightDuration)
+                {
+                    widthAnim.Completed += (s, e) => onCompleted();
+                }
+                else
+                {
+                    heightAnim.Completed += (s, e) => onCompleted();
+                }
+            }
 
             islandBorder.BeginAnimation(Border.WidthProperty,  widthAnim);
             islandBorder.BeginAnimation(Border.HeightProperty, heightAnim);
@@ -689,10 +740,18 @@ namespace DynamicIslandWindows
         private void OpenIsland()
         {
             EnsureTopmost();
+            if (_isDropZoneActive) DeactivateDropMode();
             _isIslandOpen = true;
 
+            // Cancela animações de fade pendentes para evitar que callbacks tardios colapsem o painel
+            expandedIslandPanel.BeginAnimation(UIElement.OpacityProperty, null);
+            appearancePanel.BeginAnimation(UIElement.OpacityProperty, null);
+            wifiPanel.BeginAnimation(UIElement.OpacityProperty, null);
+
+            // Garante visibilidade do painel expandido para medição física de layout
+            expandedIslandPanel.Opacity = 0;
             expandedIslandPanel.Visibility = Visibility.Visible;
-            islandSeparator.Visibility = Visibility.Visible;
+
             miniIslandPanel.Visibility = Visibility.Visible;
             dropZonePanel.Visibility = Visibility.Collapsed;
             appearancePanel.Visibility = Visibility.Collapsed;
@@ -705,13 +764,38 @@ namespace DynamicIslandWindows
 
             double totalHeight = CalculateContentHeight(expandedIslandPanel);
 
+            // Animação física do contêiner
             AnimateBorder(ISLAND_OPEN_W, totalHeight);
             ApplyDepthHierarchy(IslandDepth.Expanded);
+
+            // Animação suave do separador
+            if (islandSeparator != null)
+            {
+                islandSeparator.Visibility = Visibility.Visible;
+                islandSeparator.Opacity = 0;
+                var fadeInSep = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200))
+                {
+                    BeginTime = TimeSpan.FromMilliseconds(70),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                islandSeparator.BeginAnimation(UIElement.OpacityProperty, fadeInSep);
+            }
+
+            // Conteúdo expandido entra com slide-up e fade-in escalonado (delayMs: 70)
+            AnimatePanelIn(expandedIslandPanel, slideDistance: 16, delayMs: 70);
         }
 
         private double CalculateContentHeight(FrameworkElement? contentPanel, double extraOffset = 0.0)
         {
             if (contentPanel == null || miniIslandPanel == null) return ISLAND_OPEN_H;
+
+            // Se o painel estiver Collapsed no WPF, o DesiredSize retorna zero
+            bool wasCollapsed = contentPanel.Visibility == Visibility.Collapsed;
+            if (wasCollapsed)
+            {
+                contentPanel.Opacity = 0;
+                contentPanel.Visibility = Visibility.Hidden;
+            }
 
             contentPanel.UpdateLayout();
             contentPanel.Measure(new Size(ISLAND_OPEN_W, double.PositiveInfinity));
@@ -722,6 +806,13 @@ namespace DynamicIslandWindows
 
             const double PanelSpacingAndPadding = 19.0;
             double totalHeight = contentHeight + miniHeight + PanelSpacingAndPadding + extraOffset;
+
+            // Salvaguarda: se a medição de conteúdo for inferior a 100px (ex: painel não medido), usa a altura completa
+            if (contentHeight < 100)
+            {
+                return ISLAND_OPEN_H;
+            }
+
             return Math.Min(totalHeight, ISLAND_OPEN_H);
         }
 
@@ -735,33 +826,51 @@ namespace DynamicIslandWindows
             txtWifiPassword.Clear();
             wifiPasswordPanel.Visibility = Visibility.Collapsed;
 
-            expandedIslandPanel.Visibility = Visibility.Collapsed;
-            islandSeparator.Visibility = Visibility.Collapsed;
-            dropZonePanel.Visibility = Visibility.Collapsed;
-            appearancePanel.Visibility = Visibility.Collapsed;
-            wifiPanel.Visibility = Visibility.Collapsed;
+            // Fade-out rápido dos painéis para transição limpa
+            AnimatePanelOut(expandedIslandPanel);
+            AnimatePanelOut(appearancePanel);
+            AnimatePanelOut(wifiPanel);
+
+            if (islandSeparator != null)
+            {
+                var fadeOutSep = new DoubleAnimation(islandSeparator.Opacity, 0, TimeSpan.FromMilliseconds(100))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+                };
+                fadeOutSep.Completed += (s, e) => islandSeparator.Visibility = Visibility.Collapsed;
+                islandSeparator.BeginAnimation(UIElement.OpacityProperty, fadeOutSep);
+            }
+            if (dropZonePanel != null) dropZonePanel.Visibility = Visibility.Collapsed;
 
             miniIslandPanel.Visibility = Visibility.Visible;
 
-            if (mainContentGrid != null)
-            {
-                mainContentGrid.VerticalAlignment = VerticalAlignment.Center;
-            }
-
             double dynamicWidth = GetDynamicCompactWidth();
-            AnimateBorder(dynamicWidth, _miniBaseHeightLogica);
+
+            // Snap rápido de fechamento com callback para centralizar conteúdo após retração
+            AnimateBorder(dynamicWidth, _miniBaseHeightLogica, () =>
+            {
+                if (mainContentGrid != null && !_isIslandOpen)
+                {
+                    mainContentGrid.VerticalAlignment = VerticalAlignment.Center;
+                }
+            });
+
             ApplyDepthHierarchy(IslandDepth.Compact);
             EnsureTopmost();
         }
 
-        public void EnsureTopmost()
+        public void EnsureTopmost(bool allowActivation = false)
         {
             try
             {
                 if (_hwnd != IntPtr.Zero && this.Visibility == Visibility.Visible)
                 {
-                    SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                    uint flags = SWP_NOMOVE | SWP_NOSIZE | (uint)SWP_SHOWWINDOW | SWP_FRAMECHANGED;
+                    if (!allowActivation)
+                    {
+                        flags |= SWP_NOACTIVATE;
+                    }
+                    SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags);
                 }
             }
             catch (Exception ex)
@@ -774,6 +883,7 @@ namespace DynamicIslandWindows
         private void AnimatePanelIn(FrameworkElement? panel, double slideDistance = 15, int delayMs = 60)
         {
             if (panel == null) return;
+            panel.BeginAnimation(UIElement.OpacityProperty, null);
             panel.Visibility = Visibility.Visible;
             panel.Opacity = 0;
             
@@ -781,6 +891,7 @@ namespace DynamicIslandWindows
                 panel.RenderTransform = new TranslateTransform();
             
             var translate = (TranslateTransform)panel.RenderTransform;
+            translate.BeginAnimation(TranslateTransform.YProperty, null);
             translate.Y = slideDistance;
             
             var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220))
@@ -814,7 +925,7 @@ namespace DynamicIslandWindows
             }
 
             double startOpacity = panel.Opacity > 0 ? panel.Opacity : 1.0;
-            var fadeOut = new DoubleAnimation(startOpacity, 0, TimeSpan.FromMilliseconds(130))
+            var fadeOut = new DoubleAnimation(startOpacity, 0, TimeSpan.FromMilliseconds(120))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
             };
@@ -822,6 +933,7 @@ namespace DynamicIslandWindows
             fadeOut.Completed += (s, e) =>
             {
                 panel.Visibility = Visibility.Collapsed;
+                panel.BeginAnimation(UIElement.OpacityProperty, null);
                 panel.Opacity = 1;
                 onCompleted?.Invoke();
             };
@@ -937,7 +1049,8 @@ namespace DynamicIslandWindows
             _closeDelayTimer?.Stop();
             _fullscreenTimer?.Stop();
             _mediaTimer?.Stop();
-            _openDelayTimer = _closeDelayTimer = _fullscreenTimer = _mediaTimer = null;
+            _volumeHudTimer?.Stop();
+            _openDelayTimer = _closeDelayTimer = _fullscreenTimer = _mediaTimer = _volumeHudTimer = null;
 
             DisposeHotkeys();
             DisposeMedia();

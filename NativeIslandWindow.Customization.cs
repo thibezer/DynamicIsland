@@ -204,13 +204,15 @@ namespace DynamicIslandWindows
             }
         }
 
-        private void SaveConfig()
+        private async void SaveConfig()
         {
             try
             {
                 string path = GetConfigPath();
-                string json = JsonSerializer.Serialize(_config);
-                File.WriteAllText(path, json);
+                string tempPath = path + ".tmp";
+                string json = JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true });
+                await File.WriteAllTextAsync(tempPath, json);
+                File.Move(tempPath, path, overwrite: true);
             }
             catch (Exception ex)
             {
@@ -246,7 +248,8 @@ namespace DynamicIslandWindows
                 string? exePath = Environment.ProcessPath;
                 if (string.IsNullOrEmpty(exePath) || !exePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                 {
-                    exePath = Process.GetCurrentProcess().MainModule?.FileName;
+                    using var currentProc = Process.GetCurrentProcess();
+                    exePath = currentProc.MainModule?.FileName;
                 }
 
                 if (!string.IsNullOrEmpty(exePath) && exePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
@@ -424,7 +427,7 @@ namespace DynamicIslandWindows
                     exStyle |= WS_EX_NOACTIVATE;
                 }
                 SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle);
-                EnsureTopmost();
+                EnsureTopmost(allowActivation);
             }
             catch (Exception ex)
             {

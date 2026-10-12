@@ -361,18 +361,32 @@ namespace DynamicIslandWindows
             }
         }
 
-        private void CancelWifiConnection_Click(object sender, MouseButtonEventArgs e)
+        private void TxtWifiPassword_KeyDown(object sender, KeyEventArgs e)
         {
-            e.Handled = true;
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                ConnectWifi_Click(sender, null);
+            }
+            else if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                CancelWifiConnection_Click(sender, null);
+            }
+        }
+
+        private void CancelWifiConnection_Click(object sender, MouseButtonEventArgs? e)
+        {
+            if (e != null) e.Handled = true;
             txtWifiPassword.Clear();
             wifiPasswordPanel.Visibility = Visibility.Collapsed;
             _selectedWifiNetwork = null;
             AdjustWifiPanelHeight();
         }
 
-        private void ConnectWifi_Click(object sender, MouseButtonEventArgs e)
+        private void ConnectWifi_Click(object sender, MouseButtonEventArgs? e)
         {
-            e.Handled = true;
+            if (e != null) e.Handled = true;
             if (_selectedWifiNetwork == null) return;
 
             string password = txtWifiPassword.Password;
@@ -551,6 +565,7 @@ namespace DynamicIslandWindows
             StartWifiAutoRefresh();
 
             UpdateWifiToggleHeaderUI();
+            AdjustWifiPanelHeight();
             _ = RefreshWifiListAsync();
         }
 

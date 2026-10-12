@@ -480,7 +480,7 @@
                             <StackPanel>
                                 <TextBlock Style="{StaticResource FluentText}" Name="txtWifiPasswordPrompt" Text="Introduza a palavra-passe" FontSize="11" FontWeight="Bold" Margin="0,0,0,8" />
                                 
-                                <PasswordBox Name="txtWifiPassword" Style="{StaticResource IslandPasswordBoxStyle}" Height="32" Margin="0,0,0,10" GotFocus="TextBox_GotFocus" LostFocus="TextBox_LostFocus" />
+                                <PasswordBox Name="txtWifiPassword" Style="{StaticResource IslandPasswordBoxStyle}" Height="32" Margin="0,0,0,10" GotFocus="TextBox_GotFocus" LostFocus="TextBox_LostFocus" KeyDown="TxtWifiPassword_KeyDown" />
                                 
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -820,6 +820,16 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Name="miniMediaControls" Visibility="Collapsed" VerticalAlignment="Center">
+                        <!-- Waveform / Equalizador Animado Estilo iOS Dynamic Island -->
+                        <Grid Name="waveformContainer" Margin="0,0,4,0" VerticalAlignment="Center" Height="14" Width="14">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Border Name="waveBar1" Width="2" Height="5" CornerRadius="1" Background="{DynamicResource ThemeAccentBrush}" Margin="0.5,0" VerticalAlignment="Center" />
+                                <Border Name="waveBar2" Width="2" Height="11" CornerRadius="1" Background="{DynamicResource ThemeAccentBrush}" Margin="0.5,0" VerticalAlignment="Center" />
+                                <Border Name="waveBar3" Width="2" Height="8" CornerRadius="1" Background="{DynamicResource ThemeAccentBrush}" Margin="0.5,0" VerticalAlignment="Center" />
+                                <Border Name="waveBar4" Width="2" Height="4" CornerRadius="1" Background="{DynamicResource ThemeAccentBrush}" Margin="0.5,0" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
+
                         <Border Style="{StaticResource TactileBorderButtonStyle}" Width="30" Height="30" CornerRadius="15" Background="Transparent" MouseLeftButtonDown="PlayPause_Click" Cursor="Hand" ToolTip="Reproduzir/Pausar" VerticalAlignment="Center">
                             <Grid>
                                 <TextBlock Style="{StaticResource FluentIcon}" FontSize="12" Text="&#xE768;" Name="txtMiniPlayIcon" VerticalAlignment="Center" HorizontalAlignment="Center" TextAlignment="Center" Margin="1.5,0,0,0" />

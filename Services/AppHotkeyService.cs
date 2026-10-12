@@ -15,6 +15,19 @@ namespace DynamicIslandWindows.Services
         public string Shortcut { get; set; } = string.Empty;        // Atalho (ex: "Shift+F")
         public string ActionType { get; set; } = "ShowNotification"; // Ação: "ShowNotification", "ExecuteCommand"
         public string ActionParameter { get; set; } = string.Empty; // Texto da notificação ou comando a rodar
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool ReqShift { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool ReqCtrl { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool ReqAlt { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool ReqWin { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public int TargetVk { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string KeyName { get; set; } = string.Empty;
     }
 
     public class AppHotkeyTriggeredEventArgs : EventArgs
@@ -173,7 +186,11 @@ namespace DynamicIslandWindows.Services
                     var loadedRules = JsonSerializer.Deserialize<List<AppHotkeyRule>>(json);
                     if (loadedRules != null)
                     {
-                        _rules.AddRange(loadedRules);
+                        foreach (var rule in loadedRules)
+                        {
+                            PreprocessRule(rule);
+                            _rules.Add(rule);
+                        }
                     }
                 }
             }
@@ -210,13 +227,15 @@ namespace DynamicIslandWindows.Services
                 bool exists = _rules.Exists(r => r.ProcessName.Equals("notion", StringComparison.OrdinalIgnoreCase) && r.Shortcut.Equals(item.shortcut, StringComparison.OrdinalIgnoreCase));
                 if (!exists)
                 {
-                    _rules.Add(new AppHotkeyRule 
+                    var newRule = new AppHotkeyRule 
                     { 
                         ProcessName = "notion", 
                         Shortcut = item.shortcut, 
                         ActionType = "InjectText", 
                         ActionParameter = item.parameter 
-                    });
+                    };
+                    PreprocessRule(newRule);
+                    _rules.Add(newRule);
                     configChanged = true;
                 }
             }
@@ -225,6 +244,32 @@ namespace DynamicIslandWindows.Services
             {
                 SaveConfig();
             }
+        }
+
+        private static void PreprocessRule(AppHotkeyRule rule)
+        {
+            if (string.IsNullOrEmpty(rule.Shortcut)) return;
+
+            string keyName = "";
+            string modifiersPart = rule.Shortcut;
+            if (rule.Shortcut.EndsWith("++") || rule.Shortcut.Trim() == "+")
+            {
+                keyName = "+";
+                modifiersPart = rule.Shortcut.TrimEnd().Substring(0, Math.Max(0, rule.Shortcut.TrimEnd().Length - 1));
+            }
+
+            foreach (var part in modifiersPart.Split('+', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string p = part.Trim().ToLowerInvariant();
+                if (p == "shift") rule.ReqShift = true;
+                else if (p == "ctrl" || p == "control") rule.ReqCtrl = true;
+                else if (p == "alt") rule.ReqAlt = true;
+                else if (p == "win" || p == "windows") rule.ReqWin = true;
+                else keyName = p;
+            }
+
+            rule.KeyName = keyName;
+            rule.TargetVk = ParseKeyNameToVk(keyName);
         }
 
         private void SaveConfig()
@@ -438,11 +483,12 @@ namespace DynamicIslandWindows.Services
             string activeProcessName = GetActiveProcessName(foregroundWindow);
             if (string.IsNullOrEmpty(activeProcessName)) return false;
 
-            foreach (var rule in _rules)
+            for (int i = 0; i < _rules.Count; i++)
             {
+                var rule = _rules[i];
                 if (string.Equals(rule.ProcessName, activeProcessName, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (MatchShortcut(rule.Shortcut, vkCode, isShift, isCtrl, isAlt, isWin))
+                    if (MatchShortcut(rule, vkCode, isShift, isCtrl, isAlt, isWin))
                     {
                         if (rule.ActionType.Equals("InjectText", StringComparison.OrdinalIgnoreCase))
                         {
@@ -463,68 +509,43 @@ namespace DynamicIslandWindows.Services
             return false;
         }
 
-        private bool MatchShortcut(string shortcutStr, int vkCode, bool isShift, bool isCtrl, bool isAlt, bool isWin)
+        private static bool MatchShortcut(AppHotkeyRule rule, int vkCode, bool isShift, bool isCtrl, bool isAlt, bool isWin)
         {
-            bool reqShift = false;
-            bool reqCtrl = false;
-            bool reqAlt = false;
-            bool reqWin = false;
-            string keyName = "";
-
-            // A própria tecla pode ser "+" (ex.: "Shift++"); um Split('+') simples a perderia
-            string modifiersPart = shortcutStr;
-            if (shortcutStr.EndsWith("++") || shortcutStr.Trim() == "+")
-            {
-                keyName = "+";
-                modifiersPart = shortcutStr.TrimEnd().Substring(0, Math.Max(0, shortcutStr.TrimEnd().Length - 1));
-            }
-
-            foreach (var part in modifiersPart.Split('+', StringSplitOptions.RemoveEmptyEntries))
-            {
-                string p = part.Trim().ToLowerInvariant();
-                if (p == "shift") reqShift = true;
-                else if (p == "ctrl" || p == "control") reqCtrl = true;
-                else if (p == "alt") reqAlt = true;
-                else if (p == "win" || p == "windows") reqWin = true;
-                else keyName = p;
-            }
-
-            // Tolera Alt Gr: Se a regra requer Alt (reqAlt == true) e o Alt físico está ativo (isAlt == true),
-            // permitimos que o Ctrl físico (isCtrl) seja verdadeiro (pois Alt Gr envia Ctrl+Alt).
-            bool ctrlMatches = (isCtrl == reqCtrl) || (isCtrl && isAlt && reqAlt && !reqCtrl);
+            // Tolera Alt Gr: Se a regra requer Alt e o Alt físico está ativo,
+            // permitimos que o Ctrl físico seja verdadeiro (pois Alt Gr envia Ctrl+Alt).
+            bool ctrlMatches = (isCtrl == rule.ReqCtrl) || (isCtrl && isAlt && rule.ReqAlt && !rule.ReqCtrl);
             if (!ctrlMatches) return false;
 
-            if (isAlt != reqAlt) return false;
-            if (isWin != reqWin) return false;
+            if (isAlt != rule.ReqAlt) return false;
+            if (isWin != rule.ReqWin) return false;
 
-            if (keyName == "*")
+            if (rule.KeyName == "*")
             {
                 if (vkCode == 0x6A) return true; // Multiply do teclado numérico (não exige Shift)
                 if (vkCode == 0x38 && isShift) return true; // Tecla 8 alfanumérica com Shift
                 return false;
             }
 
-            if (keyName == "+")
+            if (rule.KeyName == "+")
             {
                 if (vkCode == 0x6B && !isShift) return true; // Tecla + do teclado numérico (sem Shift)
                 if (vkCode == 0xBB && isShift) return true;  // Tecla =/+ alfanumérica com Shift
                 return false;
             }
 
-            if (keyName == "/")
+            if (rule.KeyName == "/")
             {
                 if (vkCode == 0x6F) return true; // DIVIDE do teclado numérico (não exige Shift)
-                if ((vkCode == 0xBF || vkCode == 0xC1) && isShift == reqShift) return true; // OEM_2 ou ABNT_C1 sem Shift
+                if ((vkCode == 0xBF || vkCode == 0xC1) && isShift == rule.ReqShift) return true; // OEM_2 ou ABNT_C1 sem Shift
                 return false;
             }
 
-            if (isShift != reqShift) return false;
+            if (isShift != rule.ReqShift) return false;
 
-            int targetVk = ParseKeyNameToVk(keyName);
-            return vkCode == targetVk;
+            return vkCode == rule.TargetVk;
         }
 
-        private int ParseKeyNameToVk(string keyName)
+        private static int ParseKeyNameToVk(string keyName)
         {
             if (string.IsNullOrEmpty(keyName)) return 0;
             keyName = keyName.ToLower();

@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -153,9 +154,6 @@ namespace DynamicIslandWindows
         {
             if (_pomodoroService == null) return;
 
-            var duration = TimeSpan.FromMilliseconds(250);
-            var easing = new CubicEase { EasingMode = EasingMode.EaseInOut };
-
             if (!_isPomodoroExpanded)
             {
                 _isPomodoroExpanded = true;
@@ -164,44 +162,76 @@ namespace DynamicIslandWindows
                 txtWorkTimeInput.Text = $"{_pomodoroService.WorkTimeMinutes:D2}:00";
                 txtBreakTimeInput.Text = $"{_pomodoroService.BreakTimeMinutes:D2}:00";
 
+                var spring = new SpringEase { DampingRatio = 0.85, Response = 0.38 };
+                var duration = spring.GetSettleTime();
+
                 pomodoroCompactGrid.Visibility = Visibility.Collapsed;
                 pomodoroExpandedGrid.Visibility = Visibility.Visible;
+                pomodoroExpandedGrid.Opacity = 0;
 
-                // Só "To": parte do tamanho atual, sem saltos se o clique interromper a animação anterior
-                var animWidth = new DoubleAnimation(158, duration) { EasingFunction = easing };
-                pomodoroBorder.BeginAnimation(WidthProperty, animWidth);
+                var animWidth = new DoubleAnimation(pomodoroBorder.ActualWidth > 0 ? pomodoroBorder.ActualWidth : 90, 158, duration)
+                {
+                    EasingFunction = spring,
+                    FillBehavior = FillBehavior.HoldEnd
+                };
+                var animHeight = new DoubleAnimation(pomodoroBorder.ActualHeight > 0 ? pomodoroBorder.ActualHeight : 43, 78, duration)
+                {
+                    EasingFunction = spring,
+                    FillBehavior = FillBehavior.HoldEnd
+                };
+                var animFade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200))
+                {
+                    BeginTime = TimeSpan.FromMilliseconds(50),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
 
-                var animHeight = new DoubleAnimation(78, duration) { EasingFunction = easing };
-                pomodoroBorder.BeginAnimation(HeightProperty, animHeight);
-
+                pomodoroBorder.BeginAnimation(Border.CornerRadiusProperty, null);
                 pomodoroBorder.CornerRadius = new CornerRadius(18);
-
-                var animFade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200));
+                pomodoroBorder.BeginAnimation(WidthProperty, animWidth);
+                pomodoroBorder.BeginAnimation(HeightProperty, animHeight);
                 pomodoroExpandedGrid.BeginAnimation(OpacityProperty, animFade);
             }
             else
             {
                 _isPomodoroExpanded = false;
 
-                pomodoroExpandedGrid.BeginAnimation(OpacityProperty, null);
-                pomodoroExpandedGrid.Opacity = 0;
-                pomodoroExpandedGrid.Visibility = Visibility.Collapsed;
-                
-                pomodoroCompactGrid.Visibility = Visibility.Visible;
-                pomodoroCompactGrid.Opacity = 1;
+                var spring = new SpringEase { DampingRatio = 0.82, Response = 0.30 };
+                var duration = spring.GetSettleTime();
 
-                var animWidth = new DoubleAnimation(90, duration) { EasingFunction = easing };
+                // Fade-out rápido do painel expandido antes do recolhimento
+                var fadeOut = new DoubleAnimation(pomodoroExpandedGrid.Opacity, 0, TimeSpan.FromMilliseconds(90))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+                };
+                fadeOut.Completed += (s, e) =>
+                {
+                    pomodoroExpandedGrid.Visibility = Visibility.Collapsed;
+                    pomodoroCompactGrid.Visibility = Visibility.Visible;
+                    pomodoroCompactGrid.Opacity = 1;
+                };
+                pomodoroExpandedGrid.BeginAnimation(OpacityProperty, fadeOut);
+
+                var animWidth = new DoubleAnimation(pomodoroBorder.ActualWidth, 90, duration)
+                {
+                    EasingFunction = spring,
+                    FillBehavior = FillBehavior.HoldEnd
+                };
                 animWidth.Completed += (s, e) =>
                 {
                     // Se o usuário reabriu durante a animação, não encolhe a janela
                     if (!_isPomodoroExpanded) UpdatePhysicalWindowWidth();
                 };
-                pomodoroBorder.BeginAnimation(WidthProperty, animWidth);
 
-                var animHeight = new DoubleAnimation(43, duration) { EasingFunction = easing };
-                pomodoroBorder.BeginAnimation(HeightProperty, animHeight);
+                var animHeight = new DoubleAnimation(pomodoroBorder.ActualHeight, 43, duration)
+                {
+                    EasingFunction = spring,
+                    FillBehavior = FillBehavior.HoldEnd
+                };
 
+                pomodoroBorder.BeginAnimation(Border.CornerRadiusProperty, null);
                 pomodoroBorder.CornerRadius = new CornerRadius(21.5);
+                pomodoroBorder.BeginAnimation(WidthProperty, animWidth);
+                pomodoroBorder.BeginAnimation(HeightProperty, animHeight);
             }
         }
 
