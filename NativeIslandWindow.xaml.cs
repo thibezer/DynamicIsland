@@ -63,6 +63,10 @@ namespace DynamicIslandWindows
         }
 
         private const int WM_WINDOWPOSCHANGING = 0x0046;
+        private const int WM_CLOSE             = 0x0010;
+        private const int WM_DESTROY           = 0x0002;
+        private const int WM_QUERYENDSESSION   = 0x0011;
+        private const int WM_ENDSESSION        = 0x0016;
         private const int WM_DISPLAYCHANGE     = 0x007E;
         private const int WM_SETTINGCHANGE     = 0x001A;
         private const int WM_DPICHANGED        = 0x02E0;
@@ -201,9 +205,13 @@ namespace DynamicIslandWindows
             Loaded += Window_Loaded;
         }
 
+        private bool _hasLoaded = false;
+
         // ─── Ciclo de Vida e Inicialização ───────────────────────────────────────
         private async void Window_Loaded(object sender, RoutedEventArgs e)
         {
+            if (_hasLoaded) return;
+            _hasLoaded = true;
             try
             {
                 SetupWindowHook();
@@ -264,6 +272,8 @@ namespace DynamicIslandWindows
             {
                 Debug.WriteLine($"[MediaInit] {ex.Message}");
             }
+
+            IslandLogger.Log("JANELA_LOADED", $"Janela carregada e visível com sucesso. Top={Top}, Left={Left}, Width={Width}, Height={Height}");
         }
 
         // ─── Atalhos por Aplicativo ───────────────────────────────────────────────
@@ -271,6 +281,7 @@ namespace DynamicIslandWindows
         {
             try
             {
+                DisposeHotkeys();
                 // O hook de teclado de baixo nível precisa ser instalado na thread de UI (com loop de mensagens)
                 _hotkeyService = new AppHotkeyService();
                 _hotkeyService.HotkeyTriggered += HotkeyService_HotkeyTriggered;
@@ -278,6 +289,7 @@ namespace DynamicIslandWindows
             catch (Exception ex)
             {
                 Debug.WriteLine($"[HotkeyInit] {ex.Message}");
+                IslandLogger.Log("HOTKEY_ERROR", "Falha ao inicializar serviço de hotkeys", ex);
             }
         }
 
@@ -513,6 +525,13 @@ namespace DynamicIslandWindows
                     // Micro-HUD tátil de volume na pílula compacta fechada
                     if (!_isIslandOpen && txtMiniSubtitle != null)
                     {
+                        // Adia a abertura por hover enquanto o usuário está apenas rolando o volume na pílula fechada
+                        if (_openDelayTimer != null && _openDelayTimer.IsEnabled)
+                        {
+                            _openDelayTimer.Stop();
+                            _openDelayTimer.Start();
+                        }
+
                         string volIcon = newVol == 0 ? "🔇" : (newVol < 33 ? "🔈" : (newVol < 66 ? "🔉" : "🔊"));
                         AnimateTextChange(txtMiniSubtitle, $"{volIcon} Volume {newVol}%");
 
@@ -531,10 +550,8 @@ namespace DynamicIslandWindows
         private async void VolumeHudTimer_Tick(object? sender, EventArgs e)
         {
             _volumeHudTimer?.Stop();
-            if (!_isIslandOpen)
-            {
-                await UpdateMediaInfoAsync();
-            }
+            _cachedCompactWidth = -1;
+            await UpdateMediaInfoAsync();
         }
 
         private static T? FindVisualParent<T>(DependencyObject? child) where T : DependencyObject
@@ -621,14 +638,14 @@ namespace DynamicIslandWindows
                 }
                 else
                 {
-                    CloseIsland();
+                    CloseIsland("Mouse saiu da área da ilha (CloseDelayTimer expirado)");
                 }
             }
         }
 
         private void FullscreenTimer_Tick(object? sender, EventArgs e)
         {
-            bool isFs = IsFullScreenRunning();
+            bool isFs = IsFullScreenRunning(out QUERY_USER_NOTIFICATION_STATE state);
             if (isFs != _isFullScreenCached)
             {
                 _isFullScreenCached = isFs;
@@ -636,12 +653,14 @@ namespace DynamicIslandWindows
                 {
                     _openDelayTimer?.Stop();
                     _closeDelayTimer?.Stop();
-                    if (_isIslandOpen) CloseIsland();
+                    if (_isIslandOpen) CloseIsland("Modo tela cheia detectado por FullscreenTimer");
                     this.Visibility = Visibility.Collapsed;
+                    IslandLogger.LogVisibility("Collapsed", $"Modo tela cheia ativado ({state})");
                 }
                 else
                 {
                     this.Visibility = Visibility.Visible;
+                    IslandLogger.LogVisibility("Visible", "Modo tela cheia desativado");
                 }
                 EnsureTopmost();
             }
@@ -764,8 +783,20 @@ namespace DynamicIslandWindows
 
             double totalHeight = CalculateContentHeight(expandedIslandPanel);
 
+            // Performance: fixa a largura do painel (sem relayout por frame enquanto a borda cresce)
+            // e rasteriza o conteúdo uma única vez (fade/slide viram operações baratas de GPU).
+            expandedIslandPanel.HorizontalAlignment = HorizontalAlignment.Center;
+            expandedIslandPanel.Width = ISLAND_OPEN_W - (islandBorder.Padding.Left + islandBorder.Padding.Right);
+            expandedIslandPanel.CacheMode = new BitmapCache(Math.Max(_dpiX, 1.0));
+
             // Animação física do contêiner
-            AnimateBorder(ISLAND_OPEN_W, totalHeight);
+            AnimateBorder(ISLAND_OPEN_W, totalHeight, () =>
+            {
+                if (!_isIslandOpen) return;
+                expandedIslandPanel.CacheMode = null;               // texto nítido no estado final
+                expandedIslandPanel.ClearValue(WidthProperty);
+                expandedIslandPanel.ClearValue(HorizontalAlignmentProperty);
+            });
             ApplyDepthHierarchy(IslandDepth.Expanded);
 
             // Animação suave do separador
@@ -775,14 +806,15 @@ namespace DynamicIslandWindows
                 islandSeparator.Opacity = 0;
                 var fadeInSep = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200))
                 {
-                    BeginTime = TimeSpan.FromMilliseconds(70),
+                    BeginTime = TimeSpan.FromMilliseconds(120),
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
                 };
                 islandSeparator.BeginAnimation(UIElement.OpacityProperty, fadeInSep);
             }
 
             // Conteúdo expandido entra com slide-up e fade-in escalonado (delayMs: 70)
-            AnimatePanelIn(expandedIslandPanel, slideDistance: 16, delayMs: 70);
+            // Sem slide: o conteúdo só faz fade depois que a forma já cresceu (evita texto "duplicado")
+            AnimatePanelIn(expandedIslandPanel, slideDistance: 0, delayMs: 120, fadeMs: 260);
         }
 
         private double CalculateContentHeight(FrameworkElement? contentPanel, double extraOffset = 0.0)
@@ -816,8 +848,12 @@ namespace DynamicIslandWindows
             return Math.Min(totalHeight, ISLAND_OPEN_H);
         }
 
-        private void CloseIsland()
+        private void CloseIsland(string reason = "Não especificado")
         {
+            if (_isIslandOpen)
+            {
+                IslandLogger.LogIslandCollapse(reason);
+            }
             _isIslandOpen = false;
             
             _isWifiPanelTransitioning = false;
@@ -827,7 +863,12 @@ namespace DynamicIslandWindows
             wifiPasswordPanel.Visibility = Visibility.Collapsed;
 
             // Fade-out rápido dos painéis para transição limpa
-            AnimatePanelOut(expandedIslandPanel);
+            AnimatePanelOut(expandedIslandPanel, () =>
+            {
+                expandedIslandPanel.CacheMode = null;
+                expandedIslandPanel.ClearValue(WidthProperty);
+                expandedIslandPanel.ClearValue(HorizontalAlignmentProperty);
+            });
             AnimatePanelOut(appearancePanel);
             AnimatePanelOut(wifiPanel);
 
@@ -880,7 +921,7 @@ namespace DynamicIslandWindows
         }
 
         // ─── Utilitários de Animação Avançada ────────────────────────────────────
-        private void AnimatePanelIn(FrameworkElement? panel, double slideDistance = 15, int delayMs = 60)
+        private void AnimatePanelIn(FrameworkElement? panel, double slideDistance = 15, int delayMs = 60, int fadeMs = 220)
         {
             if (panel == null) return;
             panel.BeginAnimation(UIElement.OpacityProperty, null);
@@ -894,7 +935,7 @@ namespace DynamicIslandWindows
             translate.BeginAnimation(TranslateTransform.YProperty, null);
             translate.Y = slideDistance;
             
-            var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220))
+            var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(fadeMs))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
                 BeginTime = delayMs > 0 ? TimeSpan.FromMilliseconds(delayMs) : null
@@ -956,7 +997,17 @@ namespace DynamicIslandWindows
             {
                 if (this.WindowState == WindowState.Minimized && this.Visibility == Visibility.Visible)
                 {
+                    IslandLogger.Log("JANELA_ESTADO", "A janela foi minimizada pelo sistema operacional. Restaurando para Normal e Topmost.");
                     this.WindowState = WindowState.Normal; EnsureTopmost();
+                }
+            };
+
+            this.IsVisibleChanged += (s, e) =>
+            {
+                if (!this.IsVisible)
+                {
+                    var stack = new StackTrace(true);
+                    IslandLogger.Log("JANELA_INVISIVEL", $"Janela tornou-se invisível (IsVisible=false, Visibility={this.Visibility}). Pilha de chamada:\n{stack}");
                 }
             };
         }
@@ -1009,6 +1060,22 @@ namespace DynamicIslandWindows
                     }
                 }
             }
+            else if (msg == WM_CLOSE)
+            {
+                IslandLogger.Log("WIN32_MSG", "Mensagem WM_CLOSE recebida pelo WndProc.");
+            }
+            else if (msg == WM_DESTROY)
+            {
+                IslandLogger.Log("WIN32_MSG", "Mensagem WM_DESTROY recebida pelo WndProc.");
+            }
+            else if (msg == WM_QUERYENDSESSION)
+            {
+                IslandLogger.Log("WIN32_MSG", $"Mensagem WM_QUERYENDSESSION recebida (Windows preparando encerramento/logoff). lParam=0x{lParam.ToInt64():X}");
+            }
+            else if (msg == WM_ENDSESSION)
+            {
+                IslandLogger.Log("WIN32_MSG", $"Mensagem WM_ENDSESSION recebida. wParam={wParam}, lParam=0x{lParam.ToInt64():X}");
+            }
             else if (msg == WM_DISPLAYCHANGE || msg == WM_SETTINGCHANGE || msg == WM_DPICHANGED)
             {
                 OnDisplayOrScreenChanged();
@@ -1019,9 +1086,15 @@ namespace DynamicIslandWindows
 
         private bool IsFullScreenRunning()
         {
+            return IsFullScreenRunning(out _);
+        }
+
+        private bool IsFullScreenRunning(out QUERY_USER_NOTIFICATION_STATE state)
+        {
+            state = QUERY_USER_NOTIFICATION_STATE.QUNS_NOT_PRESENT;
             try
             {
-                int hr = SHQueryUserNotificationState(out QUERY_USER_NOTIFICATION_STATE state);
+                int hr = SHQueryUserNotificationState(out state);
                 return hr == 0 && (state == QUERY_USER_NOTIFICATION_STATE.QUNS_RUNNING_D3D_FULL_SCREEN ||
                                    state == QUERY_USER_NOTIFICATION_STATE.QUNS_BUSY);
             }
@@ -1068,8 +1141,16 @@ namespace DynamicIslandWindows
             GC.SuppressFinalize(this);
         }
 
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            var stack = new StackTrace(true);
+            IslandLogger.Log("JANELA_CLOSING", $"Evento Window.Closing disparado! Cancel={e.Cancel}. Pilha de chamada:\n{stack}");
+            base.OnClosing(e);
+        }
+
         protected override void OnClosed(EventArgs e)
         {
+            IslandLogger.Log("JANELA_CLOSED", "A janela da Dynamic Island foi fechada (OnClosed).");
             Dispose();
             base.OnClosed(e);
         }

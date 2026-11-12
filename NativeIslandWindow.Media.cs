@@ -1,3 +1,5 @@
+﻿using NAudio.CoreAudioApi;
+using System.Windows.Threading;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -90,8 +92,10 @@ namespace DynamicIslandWindows
                 {
                     // Verifica se o conteúdo compacto mudou para invalidar o cache da largura
                     bool contentChanged = false;
-                    if (txtMiniTitle.Text != state.Title) contentChanged = true;
-                    if (txtMiniSubtitle.Text != state.Subtitle) contentChanged = true;
+                    string currentTitleTarget = _targetTexts.TryGetValue(txtMiniTitle, out string? tt) ? tt : txtMiniTitle.Text;
+                    string currentSubTarget = _targetTexts.TryGetValue(txtMiniSubtitle, out string? st) ? st : txtMiniSubtitle.Text;
+                    if (txtMiniTitle.Text != state.Title || currentTitleTarget != state.Title) contentChanged = true;
+                    if (txtMiniSubtitle.Text != state.Subtitle || currentSubTarget != state.Subtitle) contentChanged = true;
 
                     string expectedPlayGlyph = state.IsPlaying ? "\uE769" : "\uE768";
                     if (state.Mode == MediaMode.Music)
@@ -214,7 +218,7 @@ namespace DynamicIslandWindows
                 textWidth = Math.Min(textWidth, 180); // Respeita o MaxWidth de 180 dos TextBlocks
 
                 double iconWidth = 38; // 30px ícone + 8px margem
-                double controlsWidth = hasMediaControls ? 82 : 0; // Waveform animado (18px) + 2 botões de controle (64px)
+                double controlsWidth = hasMediaControls ? 84 : 0; // Waveform animado (18px) + margem (6px) + 2 botões (60px)
                 double padding = 34; // Espaçamento e respiro das bordas arredondadas da pílula
 
                 double totalWidth = iconWidth + textWidth + 2 + controlsWidth + padding;
@@ -266,13 +270,23 @@ namespace DynamicIslandWindows
             miniThumbBorder.BeginAnimation(UIElement.OpacityProperty, fadeOut);
         }
 
+        private readonly System.Collections.Generic.Dictionary<TextBlock, int> _textAnimGen = new();
+        private readonly System.Collections.Generic.Dictionary<TextBlock, string> _targetTexts = new();
+
         /// <summary>
         /// Faz uma transição de texto com slide vertical elegante ao mudar títulos ou legendas
         /// </summary>
         private void AnimateTextChange(TextBlock? textBlock, string newText)
         {
-            if (textBlock == null || textBlock.Text == newText) return;
-            
+            if (textBlock == null) return;
+
+            string currentTarget = _targetTexts.TryGetValue(textBlock, out string? t) ? t : textBlock.Text;
+            if (currentTarget == newText && textBlock.Text == newText) return;
+
+            _targetTexts[textBlock] = newText;
+            int gen = (_textAnimGen.TryGetValue(textBlock, out int g) ? g : 0) + 1;
+            _textAnimGen[textBlock] = gen;
+
             if (!(textBlock.RenderTransform is TranslateTransform))
                 textBlock.RenderTransform = new TranslateTransform();
             
@@ -282,12 +296,14 @@ namespace DynamicIslandWindows
             textBlock.BeginAnimation(UIElement.OpacityProperty, null);
             translate.BeginAnimation(TranslateTransform.YProperty, null);
 
+            double targetOpacity = ReferenceEquals(textBlock, txtMiniSubtitle) ? 0.65 : 1.0;
+
             // Fase 1: Slide-out + fade-out do texto atual
             var slideOut = new DoubleAnimation(0, -6, TimeSpan.FromMilliseconds(90))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
             };
-            double currentOpacity = textBlock.Opacity > 0 ? textBlock.Opacity : 1.0;
+            double currentOpacity = textBlock.Opacity > 0 ? textBlock.Opacity : targetOpacity;
             var fadeOut = new DoubleAnimation(currentOpacity, 0, TimeSpan.FromMilliseconds(90))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
@@ -295,6 +311,10 @@ namespace DynamicIslandWindows
             
             fadeOut.Completed += (s, e) =>
             {
+                // Ignora callbacks de animações antigas que foram canceladas/substituídas
+                if (_textAnimGen.TryGetValue(textBlock, out int activeGen) && activeGen != gen)
+                    return;
+
                 textBlock.Text = newText;
                 translate.Y = 6; // Posiciona abaixo
                 
@@ -303,7 +323,7 @@ namespace DynamicIslandWindows
                 {
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
                 };
-                var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
+                var fadeIn = new DoubleAnimation(0, targetOpacity, TimeSpan.FromMilliseconds(180))
                 {
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
                 };
@@ -393,6 +413,126 @@ namespace DynamicIslandWindows
 
         // ─── Equalizador / Waveform Animado Estilo iOS ──────────────────────────
         private bool _isWaveformAnimating = false;
+        private Color _currentWaveformColor = Color.FromRgb(0x30, 0xD1, 0x58);
+
+        private const double RestBarHeight = 2.8;
+
+        private DispatcherTimer? _visualizerTimer;
+        private MMDeviceEnumerator? _meterEnumerator;
+        private MMDevice? _meterDevice;
+        private float _peakTracker = 0.1f;
+        private float _prevMaster = 0f;
+        private double _curBar1 = RestBarHeight;
+        private double _curBar2 = RestBarHeight;
+        private double _curBar3 = RestBarHeight;
+        private double _curBar4 = RestBarHeight;
+
+        public void UpdateWaveformColor(BitmapSource? thumbnail)
+        {
+            try
+            {
+                Color targetColor = ExtractVibrantColor(thumbnail);
+                if (targetColor == _currentWaveformColor) return;
+                _currentWaveformColor = targetColor;
+
+                if (this.Resources["WaveformAccentBrush"] is SolidColorBrush currentBrush && !currentBrush.IsFrozen)
+                {
+                    var anim = new ColorAnimation(targetColor, TimeSpan.FromMilliseconds(350))
+                    {
+                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                    };
+                    currentBrush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
+                }
+                else
+                {
+                    var newBrush = new SolidColorBrush(targetColor);
+                    this.Resources["WaveformAccentBrush"] = newBrush;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[UpdateWaveformColor] {ex.Message}");
+            }
+        }
+
+        private Color ExtractVibrantColor(BitmapSource? thumbnail)
+        {
+            if (thumbnail != null)
+            {
+                try
+                {
+                    // Amostra uma grade de 16x16 pixels para extração ultra-rápida (< 1ms)
+                    int sampleW = 16;
+                    int sampleH = 16;
+                    var renderBmp = new FormatConvertedBitmap(thumbnail, PixelFormats.Bgra32, null, 0);
+                    var scaled = new TransformedBitmap(renderBmp, new ScaleTransform(
+                        (double)sampleW / Math.Max(1, renderBmp.PixelWidth),
+                        (double)sampleH / Math.Max(1, renderBmp.PixelHeight)));
+
+                    int stride = sampleW * 4;
+                    byte[] pixels = new byte[stride * sampleH];
+                    scaled.CopyPixels(pixels, stride, 0);
+
+                    float bestScore = -1f;
+                    Color bestColor = Color.FromRgb(0x30, 0xD1, 0x58);
+
+                    for (int i = 0; i < pixels.Length; i += 4)
+                    {
+                        byte b = pixels[i];
+                        byte g = pixels[i + 1];
+                        byte r = pixels[i + 2];
+                        byte a = pixels[i + 3];
+
+                        if (a < 128) continue;
+
+                        float rf = r / 255f;
+                        float gf = g / 255f;
+                        float bf = b / 255f;
+
+                        float max = Math.Max(rf, Math.Max(gf, bf));
+                        float min = Math.Min(rf, Math.Min(gf, bf));
+                        float delta = max - min;
+
+                        float sat = (max == 0) ? 0 : delta / max;
+                        float val = max;
+
+                        // Descarta tons quase pretos, excessivamente escuros ou quase cinzas
+                        if (val < 0.25f || sat < 0.28f) continue;
+
+                        // Favorece cores vivas e expressivas
+                        float score = (sat * 2.2f) + val;
+                        if (score > bestScore)
+                        {
+                            bestScore = score;
+                            // Garante brilho suficiente para contraste no fundo preto da Island
+                            float boost = val < 0.65f ? 0.65f / val : 1.0f;
+                            byte finalR = (byte)Math.Clamp((int)(r * boost), 0, 255);
+                            byte finalG = (byte)Math.Clamp((int)(g * boost), 0, 255);
+                            byte finalB = (byte)Math.Clamp((int)(b * boost), 0, 255);
+                            bestColor = Color.FromRgb(finalR, finalG, finalB);
+                        }
+                    }
+
+                    if (bestScore > 0)
+                    {
+                        return bestColor;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[ExtractVibrantColor] {ex.Message}");
+                }
+            }
+
+            // Fallback: se o tema do usuário for claro/vibrante, aproveita-o; se for escuro/cinza (como #444444), usa o verde clássico do iOS
+            float lum = (0.299f * _themeColor.R + 0.587f * _themeColor.G + 0.114f * _themeColor.B) / 255f;
+            if (lum >= 0.45f)
+            {
+                return _themeColor;
+            }
+
+            return Color.FromRgb(0x30, 0xD1, 0x58); // Apple Music Green
+        }
 
         private void UpdateWaveformAnimation(bool isPlaying)
         {
@@ -403,41 +543,127 @@ namespace DynamicIslandWindows
                 if (_isWaveformAnimating) return;
                 _isWaveformAnimating = true;
 
-                AnimateWaveBar(waveBar1, minH: 3, maxH: 10, durationMs: 420);
-                AnimateWaveBar(waveBar2, minH: 5, maxH: 13, durationMs: 340);
-                AnimateWaveBar(waveBar3, minH: 4, maxH: 11, durationMs: 480);
-                AnimateWaveBar(waveBar4, minH: 2, maxH: 8,  durationMs: 390);
+                // Cancela qualquer animação estática ativa antes de ligar o visualizador em tempo real
+                waveBar1.BeginAnimation(FrameworkElement.HeightProperty, null);
+                waveBar2.BeginAnimation(FrameworkElement.HeightProperty, null);
+                waveBar3.BeginAnimation(FrameworkElement.HeightProperty, null);
+                waveBar4.BeginAnimation(FrameworkElement.HeightProperty, null);
+
+                _curBar1 = waveBar1.ActualHeight > 0 ? waveBar1.ActualHeight : RestBarHeight;
+                _curBar2 = waveBar2.ActualHeight > 0 ? waveBar2.ActualHeight : RestBarHeight;
+                _curBar3 = waveBar3.ActualHeight > 0 ? waveBar3.ActualHeight : RestBarHeight;
+                _curBar4 = waveBar4.ActualHeight > 0 ? waveBar4.ActualHeight : RestBarHeight;
+
+                if (_visualizerTimer == null)
+                {
+                    _visualizerTimer = new DispatcherTimer(DispatcherPriority.Render)
+                    {
+                        Interval = TimeSpan.FromMilliseconds(25) // ~40 FPS suave
+                    };
+                    _visualizerTimer.Tick += VisualizerTimer_Tick;
+                }
+
+                _visualizerTimer.Start();
             }
             else
             {
-                if (!_isWaveformAnimating && waveBar1.Height == 4) return;
+                _visualizerTimer?.Stop();
+                if (!_isWaveformAnimating && Math.Abs(waveBar1.Height - RestBarHeight) < 0.1 && Math.Abs(waveBar2.Height - RestBarHeight) < 0.1) return;
                 _isWaveformAnimating = false;
 
-                StopWaveBar(waveBar1, 4);
-                StopWaveBar(waveBar2, 7);
-                StopWaveBar(waveBar3, 5);
-                StopWaveBar(waveBar4, 3);
+                // Todas as barras descem ao nível de repouso uniforme (pontos/cápsulas mínimas idênticas)
+                StopWaveBar(waveBar1, RestBarHeight);
+                StopWaveBar(waveBar2, RestBarHeight);
+                StopWaveBar(waveBar3, RestBarHeight);
+                StopWaveBar(waveBar4, RestBarHeight);
             }
         }
 
-        private static void AnimateWaveBar(Border bar, double minH, double maxH, int durationMs)
+        private void VisualizerTimer_Tick(object? sender, EventArgs e)
         {
-            bar.BeginAnimation(FrameworkElement.HeightProperty, null);
-            var anim = new DoubleAnimation(minH, maxH, TimeSpan.FromMilliseconds(durationMs))
-            {
-                AutoReverse = true,
-                RepeatBehavior = RepeatBehavior.Forever,
-                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
-            };
-            bar.BeginAnimation(FrameworkElement.HeightProperty, anim);
-        }
+            if (waveBar1 == null || waveBar2 == null || waveBar3 == null || waveBar4 == null) return;
 
-        private static void StopWaveBar(Border bar, double restH)
+            try
+            {
+                if (_meterDevice == null)
+                {
+                    _meterEnumerator ??= new MMDeviceEnumerator();
+                    _meterDevice = _meterEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                }
+
+                var meter = _meterDevice?.AudioMeterInformation;
+                if (meter == null) return;
+
+                float master = meter.MasterPeakValue;
+                float left = meter.PeakValues.Count > 0 ? meter.PeakValues[0] : master;
+                float right = meter.PeakValues.Count > 1 ? meter.PeakValues[1] : master;
+
+                // Quando o áudio estiver em silêncio ou pausa momentânea, decai suavemente para o repouso mínimo uniforme
+                if (master < 0.002f)
+                {
+                    _curBar1 += (RestBarHeight - _curBar1) * 0.15;
+                    _curBar2 += (RestBarHeight - _curBar2) * 0.15;
+                    _curBar3 += (RestBarHeight - _curBar3) * 0.15;
+                    _curBar4 += (RestBarHeight - _curBar4) * 0.15;
+
+                    waveBar1.Height = _curBar1;
+                    waveBar2.Height = _curBar2;
+                    waveBar3.Height = _curBar3;
+                    waveBar4.Height = _curBar4;
+                    return;
+                }
+
+                // AGC (Controle Automático de Ganho): adapta-se à faixa de volume do áudio do usuário
+                if (master > _peakTracker)
+                {
+                    _peakTracker = master;
+                }
+                else
+                {
+                    _peakTracker = Math.Max(0.04f, _peakTracker * 0.985f);
+                }
+
+                // Normalização perceptual não-linear (potência 0.6)
+                float norm = Math.Clamp((float)Math.Pow(master / _peakTracker, 0.6), 0f, 1f);
+                float transient = Math.Max(0f, (master - _prevMaster) * 3.5f);
+                _prevMaster = master;
+
+                // Alvos para as 4 barras em tempo real guiados pelo som real
+                double t1 = RestBarHeight + 10.5 * Math.Clamp((left * 1.2f / _peakTracker) + transient, 0f, 1f);
+                double t2 = RestBarHeight + 14.5 * norm;
+                double t3 = RestBarHeight + 12.5 * Math.Clamp((right * 1.1f / _peakTracker) + Math.Abs(left - right) * 2.0f, 0f, 1f);
+                double t4 = RestBarHeight + 9.5 * Math.Clamp((norm * 0.7f) + (transient * 1.5f), 0f, 1f);
+
+                // Física suave de ataque e decaimento: sobe rápido no beat, desce com gravidade suave
+                _curBar1 = (t1 > _curBar1) ? _curBar1 + (t1 - _curBar1) * 0.65 : _curBar1 + (t1 - _curBar1) * 0.18;
+                _curBar2 = (t2 > _curBar2) ? _curBar2 + (t2 - _curBar2) * 0.70 : _curBar2 + (t2 - _curBar2) * 0.15;
+                _curBar3 = (t3 > _curBar3) ? _curBar3 + (t3 - _curBar3) * 0.65 : _curBar3 + (t3 - _curBar3) * 0.18;
+                _curBar4 = (t4 > _curBar4) ? _curBar4 + (t4 - _curBar4) * 0.75 : _curBar4 + (t4 - _curBar4) * 0.22;
+
+                waveBar1.Height = _curBar1;
+                waveBar2.Height = _curBar2;
+                waveBar3.Height = _curBar3;
+                waveBar4.Height = _curBar4;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[VisualizerTick] {ex.Message}");
+                try { _meterDevice?.Dispose(); } catch { }
+                _meterDevice = null;
+            }
+        }
+private static void StopWaveBar(Border bar, double restH)
         {
             bar.BeginAnimation(FrameworkElement.HeightProperty, null);
-            var settle = new DoubleAnimation(bar.ActualHeight > 0 ? bar.ActualHeight : bar.Height, restH, TimeSpan.FromMilliseconds(180))
+            double currentH = bar.ActualHeight > 0 ? bar.ActualHeight : bar.Height;
+            var settle = new DoubleAnimation(currentH, restH, TimeSpan.FromMilliseconds(220))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            settle.Completed += (s, e) =>
+            {
+                bar.BeginAnimation(FrameworkElement.HeightProperty, null);
+                bar.Height = restH;
             };
             bar.BeginAnimation(FrameworkElement.HeightProperty, settle);
         }
@@ -445,6 +671,13 @@ namespace DynamicIslandWindows
         private void DisposeMedia()
         {
             UpdateWaveformAnimation(false);
+            try
+            {
+                _visualizerTimer?.Stop();
+                _meterDevice?.Dispose();
+                _meterEnumerator?.Dispose();
+            }
+            catch { }
             if (_mediaService != null)
             {
                 _mediaService.StateChanged -= MediaService_StateChanged;

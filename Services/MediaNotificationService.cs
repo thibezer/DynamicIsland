@@ -75,7 +75,8 @@ namespace DynamicIslandWindows.Services
         {
             if (_sessionManager != null) return;
 
-            var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
+            var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync()
+                .AsTask().WaitAsync(TimeSpan.FromMilliseconds(2500));
             if (manager == null) return;
 
             lock (_sessionLock)
@@ -103,7 +104,8 @@ namespace DynamicIslandWindows.Services
             try
             {
                 var listener = UserNotificationListener.Current;
-                var accessStatus = await listener.RequestAccessAsync();
+                var accessStatus = await listener.RequestAccessAsync()
+                    .AsTask().WaitAsync(TimeSpan.FromMilliseconds(3000));
                 if (accessStatus == UserNotificationListenerAccessStatus.Allowed)
                 {
                     listener.NotificationChanged += OnNotificationChanged;
@@ -267,9 +269,19 @@ namespace DynamicIslandWindows.Services
                         state.Mode = MediaMode.Music;
                         state.IsPlaying = playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
 
-                        var info = await session.TryGetMediaPropertiesAsync();
-                        var title = string.IsNullOrEmpty(info?.Title) ? "Nenhuma música" : info.Title;
-                        var artist = string.IsNullOrEmpty(info?.Artist) ? "Nenhum artista" : info.Artist;
+                        GlobalSystemMediaTransportControlsSessionMediaProperties? info = null;
+                        try
+                        {
+                            info = await session.TryGetMediaPropertiesAsync()
+                                .AsTask().WaitAsync(TimeSpan.FromMilliseconds(2000));
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[MediaNotificationService.GetCurrentStateAsync] TryGetMediaPropertiesAsync: {ex.Message}");
+                        }
+
+                        var title = string.IsNullOrEmpty(info?.Title) ? (string.IsNullOrEmpty(_cachedMusicTitle) ? "Nenhuma música" : _cachedMusicTitle) : info.Title;
+                        var artist = string.IsNullOrEmpty(info?.Artist) ? (string.IsNullOrEmpty(_cachedMusicArtist) ? "Nenhum artista" : _cachedMusicArtist) : info.Artist;
 
                         state.Title = title;
                         state.Subtitle = artist;
@@ -288,12 +300,14 @@ namespace DynamicIslandWindows.Services
                         {
                             try
                             {
-                                using var stream = await info.Thumbnail.OpenReadAsync();
+                                using var stream = await info.Thumbnail.OpenReadAsync()
+                                    .AsTask().WaitAsync(TimeSpan.FromMilliseconds(2000));
                                 if (stream.Size > 0)
                                 {
                                     using var inputStream = stream.GetInputStreamAt(0);
                                     using var reader = new Windows.Storage.Streams.DataReader(inputStream);
-                                    await reader.LoadAsync((uint)stream.Size);
+                                    await reader.LoadAsync((uint)stream.Size)
+                                        .AsTask().WaitAsync(TimeSpan.FromMilliseconds(2000));
                                     byte[] bytes = new byte[stream.Size];
                                     reader.ReadBytes(bytes);
                                     state.ThumbnailBytes = bytes;
@@ -331,8 +345,9 @@ namespace DynamicIslandWindows.Services
             catch (Exception ex)
             {
                 Debug.WriteLine($"[MediaNotificationService.GetCurrentStateAsync] Erro geral: {ex.Message}");
-                state.Title = "Erro";
-                state.Subtitle = ex.Message;
+                state.Mode = MediaMode.Notification;
+                state.Title = string.IsNullOrEmpty(_cachedNotifTitle) ? "Sem notificações" : _cachedNotifTitle;
+                state.Subtitle = string.IsNullOrEmpty(_cachedNotifContent) ? "Tudo limpo por aqui" : _cachedNotifContent;
             }
 
             return state;
@@ -345,11 +360,16 @@ namespace DynamicIslandWindows.Services
             try
             {
                 var listener = UserNotificationListener.Current;
-                var accessStatus = await listener.RequestAccessAsync();
-                if (accessStatus != UserNotificationListenerAccessStatus.Allowed)
-                    return (defaultTitle, defaultContent, null);
+                if (!_listenerSetup)
+                {
+                    var accessStatus = await listener.RequestAccessAsync()
+                        .AsTask().WaitAsync(TimeSpan.FromMilliseconds(2000));
+                    if (accessStatus != UserNotificationListenerAccessStatus.Allowed)
+                        return (defaultTitle, defaultContent, null);
+                }
 
-                var notifications = await listener.GetNotificationsAsync(NotificationKinds.Toast);
+                var notifications = await listener.GetNotificationsAsync(NotificationKinds.Toast)
+                    .AsTask().WaitAsync(TimeSpan.FromMilliseconds(2000));
                 if (notifications.Count == 0) return (defaultTitle, defaultContent, null);
 
                 // A ordem retornada não é garantida: escolhe explicitamente a mais recente
@@ -404,12 +424,14 @@ namespace DynamicIslandWindows.Services
                         var logoStreamRef = last.AppInfo.DisplayInfo.GetLogo(new Windows.Foundation.Size(30, 30));
                         if (logoStreamRef != null)
                         {
-                            using var stream = await logoStreamRef.OpenReadAsync();
+                            using var stream = await logoStreamRef.OpenReadAsync()
+                                .AsTask().WaitAsync(TimeSpan.FromMilliseconds(1500));
                             if (stream.Size > 0)
                             {
                                 using var inputStream = stream.GetInputStreamAt(0);
                                 using var reader = new Windows.Storage.Streams.DataReader(inputStream);
-                                await reader.LoadAsync((uint)stream.Size);
+                                await reader.LoadAsync((uint)stream.Size)
+                                    .AsTask().WaitAsync(TimeSpan.FromMilliseconds(1500));
                                 byte[] bytes = new byte[stream.Size];
                                 reader.ReadBytes(bytes);
                                 appIconBytes = bytes;
