@@ -871,10 +871,16 @@ private static void StopWaveBar(Border bar, double restH)
 
         private void UpdateMediaProgressFillTextContrast()
         {
-            var fg = new SolidColorBrush(AdaptiveColorService.GetAccessibleForeground(_themeColor));
-            if (txtMediaElapsedFill != null) txtMediaElapsedFill.Foreground = fg;
-            if (txtMediaExpandedTitleFill != null) txtMediaExpandedTitleFill.Foreground = fg;
-            if (txtMediaRemainingFill != null) txtMediaRemainingFill.Foreground = fg;
+            var fillFg = new SolidColorBrush(AdaptiveColorService.GetAccessibleForeground(_themeColor));
+            if (txtMediaElapsedFill != null) txtMediaElapsedFill.Foreground = fillFg;
+            if (txtMediaExpandedTitleFill != null) txtMediaExpandedTitleFill.Foreground = fillFg;
+            if (txtMediaRemainingFill != null) txtMediaRemainingFill.Foreground = fillFg;
+
+            var baseFg = new SolidColorBrush(AdaptiveColorService.GetAccessibleForeground(_inactiveColor));
+            var baseSecFg = new SolidColorBrush(AdaptiveColorService.GetAccessibleSecondaryForeground(_inactiveColor));
+            if (txtMediaExpandedTitle != null) txtMediaExpandedTitle.Foreground = baseFg;
+            if (txtMediaElapsed != null) txtMediaElapsed.Foreground = baseSecFg;
+            if (txtMediaRemaining != null) txtMediaRemaining.Foreground = baseSecFg;
         }
 
         private static string FormatMediaTime(TimeSpan time)

@@ -222,18 +222,17 @@ namespace DynamicIslandWindows
         private void UpdateToggleButton(Border border, TextBlock icon, bool isOn)
         {
             Color targetBg;
-            Color targetIcon;
+            Color targetForeground;
             
             if (isOn)
             {
                 targetBg = _themeColor;
-                targetIcon = AdaptiveColorService.GetAccessibleForeground(_themeColor);
+                targetForeground = AdaptiveColorService.GetAccessibleForeground(_themeColor);
             }
             else
             {
-                var brush = this.Resources["IslandInactiveBrush"] as SolidColorBrush;
-                targetBg = brush?.Color ?? Color.FromRgb(0x1E, 0x1E, 0x20);
-                targetIcon = AdaptiveColorService.GetAccessibleForeground(targetBg);
+                targetBg = _inactiveColor;
+                targetForeground = AdaptiveColorService.GetAccessibleForeground(targetBg);
             }
 
             var duration = TimeSpan.FromMilliseconds(150);
@@ -241,12 +240,30 @@ namespace DynamicIslandWindows
             // Anima fundo
             AnimateColor(border, Border.BackgroundProperty, targetBg, duration);
 
-            // Anima ícone
-            AnimateColor(icon, TextBlock.ForegroundProperty, targetIcon, duration);
+            // Anima ícone e todos os textos dentro do botão para manter contraste WCAG
+            AnimateColor(icon, TextBlock.ForegroundProperty, targetForeground, duration);
+            AnimateToggleTextForegrounds(border, icon, targetForeground, duration);
 
             // Anima borda
             Color targetBorder = isOn ? _themeColor : Colors.Transparent;
             AnimateColor(border, Border.BorderBrushProperty, targetBorder, duration);
+        }
+
+        private void AnimateToggleTextForegrounds(DependencyObject parent, TextBlock primaryIcon, Color targetColor, TimeSpan duration)
+        {
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is TextBlock tb && !ReferenceEquals(tb, primaryIcon))
+                {
+                    AnimateColor(tb, TextBlock.ForegroundProperty, targetColor, duration);
+                }
+                else if (child != null)
+                {
+                    AnimateToggleTextForegrounds(child, primaryIcon, targetColor, duration);
+                }
+            }
         }
 
         private void OpenSettings_Click(object sender, MouseButtonEventArgs e)

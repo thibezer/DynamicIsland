@@ -20,7 +20,7 @@ namespace DynamicIslandWindows.Services
             Color AccentForeground);
 
         private const double MinAccentContrastOnBackground = 4.5; // WCAG AA texto/UI
-        private const double MinAccentContrastOnInactive = 3.5;   // WCAG AA componentes gráficos
+        private const double MinAccentContrastOnInactive = 3.5;   // WCAG AA componentes gráficos sobre cards/botões inativos
 
         /// <summary>
         /// Calcula a luminância relativa sRGB segundo a especificação WCAG 2.1.
@@ -172,23 +172,24 @@ namespace DynamicIslandWindows.Services
         {
             RgbToHsl(dominantColor, out double domH, out double domS, out _);
 
-            // Fundo escuro rico e atmosférico (preserva o matiz da capa mantendo L <= 0.065 para contraste AAA com branco)
-            double bgSat = domS < 0.10 ? 0.04 : Math.Min(domS * 0.85, 0.58);
-            double bgLight = domS < 0.10 ? 0.05 : 0.095;
+            // Fundo escuro rico e atmosférico (preserva o matiz da capa mantendo L <= 0.045 para contraste AAA com branco)
+            double bgSat = domS < 0.10 ? 0.04 : Math.Min(domS * 0.80, 0.52);
+            double bgLight = domS < 0.10 ? 0.045 : 0.075;
             Color bg = HslToRgb(domH, bgSat, bgLight);
 
             // Garante teto de luminância relativa para nunca comprometer legibilidade do conteúdo claro
-            while (GetRelativeLuminance(bg) > 0.055 && bgLight > 0.02)
+            while (GetRelativeLuminance(bg) > 0.045 && bgLight > 0.02)
             {
                 bgLight -= 0.01;
                 bg = HslToRgb(domH, bgSat, bgLight);
             }
 
-            // Superfície inativa (botões/cards): destaca-se claramente do fundo mantendo contraste >= 7:1 com texto branco
-            double inactSat = bgSat * 0.85;
-            double inactLight = Math.Clamp(bgLight + 0.085, 0.13, 0.21);
+            // Superfície inativa (botões/cards): sutilmente mais clara que o fundo, mas sempre escura e discreta
+            // para contrastar com o destaque (sliders/ativos) e manter >= 8:1 com texto branco
+            double inactSat = bgSat * 0.65;
+            double inactLight = Math.Clamp(bgLight + 0.065, 0.11, 0.16);
             Color inactive = HslToRgb(domH, inactSat, inactLight);
-            while (GetContrastRatio(Colors.White, inactive) < 7.0 && inactLight > bgLight + 0.04)
+            while (GetContrastRatio(Colors.White, inactive) < 8.0 && inactLight > bgLight + 0.03)
             {
                 inactLight -= 0.01;
                 inactive = HslToRgb(domH, inactSat, inactLight);

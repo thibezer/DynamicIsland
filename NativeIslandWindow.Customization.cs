@@ -332,6 +332,7 @@ namespace DynamicIslandWindows
                 {
                     var palette = AdaptiveColorService.ExtractPalette(thumbnail, _themeColor);
                     _themeColor = palette.Accent;
+                    _inactiveColor = palette.InactiveSurface;
 
                     AnimateResourceBrush("IslandBackgroundBrush", palette.Background);
                     AnimateResourceBrush("IslandInactiveBrush", palette.InactiveSurface);
@@ -439,6 +440,7 @@ namespace DynamicIslandWindows
                 if (colorObj != null)
                 {
                     var color = (Color)colorObj;
+                    _inactiveColor = color;
                     AnimateResourceBrush("IslandInactiveBrush", color);
                     txtInactHex.Text = hexColor;
                     UpdateInactSelectionUI(hexColor);

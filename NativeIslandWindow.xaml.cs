@@ -151,6 +151,7 @@ namespace DynamicIslandWindows
         // Configuração
         private IslandConfig _config = new IslandConfig();
         private Color _themeColor = Color.FromRgb(0xF6, 0xA7, 0x33);
+        private Color _inactiveColor = Color.FromRgb(0x1E, 0x1E, 0x20);
         private System.Windows.Media.Imaging.BitmapSource? _currentMediaThumbnail;
 
         public class IslandConfig
