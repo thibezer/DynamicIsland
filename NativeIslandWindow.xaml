@@ -24,6 +24,8 @@
         <SolidColorBrush x:Key="ThemeAccentTrackBrush" Color="#FFF6A733" />
         <SolidColorBrush x:Key="IslandBackgroundBrush" Color="Black" />
         <SolidColorBrush x:Key="IslandInactiveBrush" Color="#FF1E1E20" />
+        <SolidColorBrush x:Key="IslandForegroundBrush" Color="White" />
+        <SolidColorBrush x:Key="IslandSecondaryForegroundBrush" Color="#FFC2C2C8" />
         <SolidColorBrush x:Key="WaveformAccentBrush" Color="#FF30D158" />
 
         <!-- Estilo moderno para TextBox Hexadecimal -->
@@ -169,7 +171,7 @@
         -->
         <Style x:Key="FluentText" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI, Arial" />
-            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Foreground" Value="{DynamicResource IslandForegroundBrush}" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
 
@@ -179,7 +181,7 @@
         -->
         <Style x:Key="FluentIcon" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Foreground" Value="{DynamicResource IslandForegroundBrush}" />
             <Setter Property="HorizontalAlignment" Value="Center" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="FontSize" Value="20" />
@@ -326,11 +328,9 @@
                     <Grid.RowDefinitions>
                         <!-- Linha 0: Cabeçalho com botão Voltar -->
                         <RowDefinition Height="Auto" />
-                        <!-- Linha 1: Bloco de Destaque -->
+                        <!-- Linha 1: Modo Adaptativo pela Capa da Mídia -->
                         <RowDefinition Height="Auto" />
-                        <!-- Linha 2: Bloco de Fundo Geral -->
-                        <RowDefinition Height="Auto" />
-                        <!-- Linha 3: Bloco de Botões Inativos -->
+                        <!-- Linha 2: Blocos Manuais de Cor -->
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     
@@ -342,8 +342,59 @@
                         <TextBlock Style="{StaticResource FluentText}" Text="Personalizar Ilha" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Grid>
 
-                    <!-- Bloco 1: Cor de Destaque (Accent) -->
-                    <StackPanel Grid.Row="1" Margin="0,0,0,8">
+                    <!-- Novo Estado de Cor: Extrair Cores da Capa da Mídia -->
+                    <Border Grid.Row="1"
+                            Name="btnAdaptiveMediaColors"
+                            Style="{StaticResource TactileBorderButtonStyle}"
+                            Background="{DynamicResource IslandInactiveBrush}"
+                            CornerRadius="10"
+                            Padding="10,8"
+                            Margin="0,0,0,10"
+                            Cursor="Hand"
+                            MouseLeftButtonDown="ToggleAdaptiveMediaColors_Click">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Name="icoAdaptiveMediaColors"
+                                       Style="{StaticResource FluentIcon}"
+                                       Text="&#xE790;"
+                                       FontSize="15"
+                                       Margin="0,0,10,0"
+                                       VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Name="txtAdaptiveMediaTitle"
+                                           Style="{StaticResource FluentText}"
+                                           Text="Cores da Capa da Mídia"
+                                           FontSize="11"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Name="txtAdaptiveMediaSubtitle"
+                                           Style="{StaticResource FluentTextSec}"
+                                           Text="Adapta a ilha à capa com contraste acessível"
+                                           FontSize="9.5" />
+                            </StackPanel>
+                            <Border Grid.Column="2"
+                                    Name="badgeAdaptiveMedia"
+                                    Background="#26FFFFFF"
+                                    CornerRadius="8"
+                                    Padding="8,3"
+                                    VerticalAlignment="Center">
+                                <TextBlock Name="txtAdaptiveMediaStatus"
+                                           Style="{StaticResource FluentText}"
+                                           Text="Desativado"
+                                           FontSize="9.5"
+                                           FontWeight="SemiBold" />
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <!-- Blocos Manuais de Cor -->
+                    <StackPanel Grid.Row="2" Name="manualColorsPanel">
+                        <!-- Bloco 1: Cor de Destaque (Accent) -->
+                        <StackPanel Margin="0,0,0,8">
                         <TextBlock Style="{StaticResource FluentTextSec}" Text="Cor de Destaque (Ativos e Sliders)" FontSize="10.5" Margin="0,0,0,4" />
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -370,7 +421,7 @@
                     </StackPanel>
 
                     <!-- Bloco 2: Fundo da Ilha -->
-                    <StackPanel Grid.Row="2" Margin="0,0,0,8">
+                    <StackPanel Margin="0,0,0,8">
                         <TextBlock Style="{StaticResource FluentTextSec}" Text="Fundo da Ilha" FontSize="10.5" Margin="0,0,0,4" />
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -397,7 +448,7 @@
                     </StackPanel>
 
                     <!-- Bloco 3: Botões Inativos -->
-                    <StackPanel Grid.Row="3" Margin="0,0,0,5">
+                    <StackPanel Margin="0,0,0,5">
                         <TextBlock Style="{StaticResource FluentTextSec}" Text="Botões Inativos" FontSize="10.5" Margin="0,0,0,4" />
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -421,6 +472,7 @@
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE73E;" FontSize="11" />
                             </Border>
                         </Grid>
+                    </StackPanel>
                     </StackPanel>
                 </Grid>
 
@@ -827,7 +879,7 @@
                                 Visibility="Collapsed"
                                 Height="28"
                                 CornerRadius="14"
-                                Background="#FF262629"
+                                Background="{DynamicResource IslandInactiveBrush}"
                                 Margin="0,0,6,0"
                                 VerticalAlignment="Center"
                                 Cursor="Hand"
@@ -836,11 +888,11 @@
                                 MouseLeftButtonUp="MediaProgress_MouseLeftButtonUp"
                                 SizeChanged="MediaProgress_SizeChanged">
                             <Grid Name="mediaProgressGrid">
-                                <!-- Camada base (parte não preenchida: texto claro sobre fundo escuro) -->
+                                <!-- Camada base (parte não preenchida: texto acessível sobre superfície inativa) -->
                                 <Grid Margin="10,0,10,0">
-                                    <TextBlock Name="txtMediaElapsed" Style="{StaticResource FluentText}" FontSize="10" FontWeight="Medium" Typography.NumeralAlignment="Tabular" Foreground="#B3FFFFFF" Text="0:00" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,-1.5,0,0" />
-                                    <TextBlock Name="txtMediaExpandedTitle" Style="{StaticResource FluentText}" FontSize="11" FontWeight="SemiBold" Foreground="White" Text="Carregando..." HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="44,0,44,0" />
-                                    <TextBlock Name="txtMediaRemaining" Style="{StaticResource FluentText}" FontSize="10" FontWeight="Medium" Typography.NumeralAlignment="Tabular" Foreground="#B3FFFFFF" Text="-0:00" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,-1.5,0,0" />
+                                    <TextBlock Name="txtMediaElapsed" Style="{StaticResource FluentText}" FontSize="10" FontWeight="Medium" Typography.NumeralAlignment="Tabular" Foreground="{DynamicResource IslandSecondaryForegroundBrush}" Text="0:00" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,-1.5,0,0" />
+                                    <TextBlock Name="txtMediaExpandedTitle" Style="{StaticResource FluentText}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource IslandForegroundBrush}" Text="Carregando..." HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="44,0,44,0" />
+                                    <TextBlock Name="txtMediaRemaining" Style="{StaticResource FluentText}" FontSize="10" FontWeight="Medium" Typography.NumeralAlignment="Tabular" Foreground="{DynamicResource IslandSecondaryForegroundBrush}" Text="-0:00" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,-1.5,0,0" />
                                 </Grid>
 
                                 <!-- Camada preenchida (progresso: texto escuro contrastante sobre cor de destaque) -->

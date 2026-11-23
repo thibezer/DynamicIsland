@@ -161,25 +161,46 @@ namespace DynamicIslandWindows
                         {
                             try
                             {
+                                _currentMediaThumbnail = decodedThumbnail;
                                 AnimateThumbnailChange(decodedThumbnail);
+                                UpdateWaveformColor(decodedThumbnail);
+                                if (_config.AdaptiveMediaColors)
+                                {
+                                    ApplyAdaptiveMediaPalette(decodedThumbnail);
+                                }
                                 _lastThumbBytes = state.ThumbnailBytes;
                             }
                             catch (Exception imgEx)
                             {
                                 Debug.WriteLine($"[ImageLoadError] {imgEx.Message}");
                                 _lastThumbBytes = null;
+                                _currentMediaThumbnail = null;
                                 UseDefaultMediaIcon();
+                                if (_config.AdaptiveMediaColors)
+                                {
+                                    ApplyAdaptiveMediaPalette(null);
+                                }
                             }
                         }
                         else
                         {
                             _lastThumbBytes = null;
+                            _currentMediaThumbnail = null;
                             UseDefaultMediaIcon();
+                            if (_config.AdaptiveMediaColors)
+                            {
+                                ApplyAdaptiveMediaPalette(null);
+                            }
                         }
                     }
                     else
                     {
                         _lastThumbBytes = null;
+                        _currentMediaThumbnail = null;
+                        if (_config.AdaptiveMediaColors)
+                        {
+                            ApplyAdaptiveMediaPalette(null);
+                        }
                         _isMediaPlaying = false;
                         _mediaHasTimeline = false;
                         _mediaBasePosition = TimeSpan.Zero;
@@ -850,17 +871,10 @@ private static void StopWaveBar(Border bar, double restH)
 
         private void UpdateMediaProgressFillTextContrast()
         {
-            if (TryFindResource("ThemeAccentBrush") is SolidColorBrush accentBrush)
-            {
-                var c = accentBrush.Color;
-                double luminance = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255.0;
-                var fg = luminance > 0.55
-                    ? new SolidColorBrush(Color.FromRgb(0x12, 0x12, 0x12))
-                    : Brushes.White;
-                if (txtMediaElapsedFill != null) txtMediaElapsedFill.Foreground = fg;
-                if (txtMediaExpandedTitleFill != null) txtMediaExpandedTitleFill.Foreground = fg;
-                if (txtMediaRemainingFill != null) txtMediaRemainingFill.Foreground = fg;
-            }
+            var fg = new SolidColorBrush(AdaptiveColorService.GetAccessibleForeground(_themeColor));
+            if (txtMediaElapsedFill != null) txtMediaElapsedFill.Foreground = fg;
+            if (txtMediaExpandedTitleFill != null) txtMediaExpandedTitleFill.Foreground = fg;
+            if (txtMediaRemainingFill != null) txtMediaRemainingFill.Foreground = fg;
         }
 
         private static string FormatMediaTime(TimeSpan time)

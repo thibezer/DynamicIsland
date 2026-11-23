@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using DynamicIslandWindows.Services;
 
 namespace DynamicIslandWindows
 {
@@ -226,14 +227,13 @@ namespace DynamicIslandWindows
             if (isOn)
             {
                 targetBg = _themeColor;
-                double brightness = (0.299 * _themeColor.R + 0.587 * _themeColor.G + 0.114 * _themeColor.B) / 255;
-                targetIcon = brightness > 0.6 ? Colors.Black : Colors.White;
+                targetIcon = AdaptiveColorService.GetAccessibleForeground(_themeColor);
             }
             else
             {
                 var brush = this.Resources["IslandInactiveBrush"] as SolidColorBrush;
                 targetBg = brush?.Color ?? Color.FromRgb(0x1E, 0x1E, 0x20);
-                targetIcon = Colors.White;
+                targetIcon = AdaptiveColorService.GetAccessibleForeground(targetBg);
             }
 
             var duration = TimeSpan.FromMilliseconds(150);

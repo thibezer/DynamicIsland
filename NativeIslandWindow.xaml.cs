@@ -151,12 +151,15 @@ namespace DynamicIslandWindows
         // Configuração
         private IslandConfig _config = new IslandConfig();
         private Color _themeColor = Color.FromRgb(0xF6, 0xA7, 0x33);
+        private System.Windows.Media.Imaging.BitmapSource? _currentMediaThumbnail;
 
         public class IslandConfig
         {
             public string ThemeColor { get; set; } = "#FFF6A733";
             public string BackgroundColor { get; set; } = "#FF000000";
             public string InactiveColor { get; set; } = "#FF1E1E20";
+            /// <summary>Extrai cores da capa da mídia e aplica na ilha com contraste acessível.</summary>
+            public bool AdaptiveMediaColors { get; set; } = false;
             /// <summary>Registra o app na inicialização do Windows (HKCU\...\Run). false remove o registro.</summary>
             public bool StartWithWindows { get; set; } = true;
         }

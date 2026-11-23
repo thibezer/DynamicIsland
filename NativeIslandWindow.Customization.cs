@@ -7,6 +7,8 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
+using DynamicIslandWindows.Services;
 using Microsoft.Win32;
 
 namespace DynamicIslandWindows
@@ -188,12 +190,14 @@ namespace DynamicIslandWindows
                         ApplyThemeColor(_config.ThemeColor);
                         ApplyBgColor(_config.BackgroundColor);
                         ApplyInactiveColor(_config.InactiveColor);
+                        UpdateAdaptiveMediaModeUI();
                         return;
                     }
                 }
                 ApplyThemeColor("#FFF6A733");
                 ApplyBgColor("#FF000000");
                 ApplyInactiveColor("#FF1E1E20");
+                UpdateAdaptiveMediaModeUI();
             }
             catch (Exception ex)
             {
@@ -201,6 +205,7 @@ namespace DynamicIslandWindows
                 ApplyThemeColor("#FFF6A733");
                 ApplyBgColor("#FF000000");
                 ApplyInactiveColor("#FF1E1E20");
+                UpdateAdaptiveMediaModeUI();
             }
         }
 
@@ -276,6 +281,101 @@ namespace DynamicIslandWindows
 #endif
         }
 
+        private void ToggleAdaptiveMediaColors_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            _config.AdaptiveMediaColors = !_config.AdaptiveMediaColors;
+            ApplyAdaptiveMediaPalette(_config.AdaptiveMediaColors ? _currentMediaThumbnail : null);
+            UpdateAdaptiveMediaModeUI();
+            SaveConfig();
+        }
+
+        private void UpdateAdaptiveMediaModeUI()
+        {
+            if (btnAdaptiveMediaColors == null) return;
+
+            bool active = _config.AdaptiveMediaColors;
+            if (txtAdaptiveMediaStatus != null)
+            {
+                txtAdaptiveMediaStatus.Text = active ? "Ativo" : "Desativado";
+                txtAdaptiveMediaStatus.Foreground = active
+                    ? new SolidColorBrush(AdaptiveColorService.GetAccessibleForeground(_themeColor))
+                    : (this.Resources["IslandForegroundBrush"] as SolidColorBrush ?? Brushes.White);
+            }
+
+            if (badgeAdaptiveMedia != null)
+            {
+                badgeAdaptiveMedia.Background = active
+                    ? new SolidColorBrush(_themeColor)
+                    : new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF));
+            }
+
+            if (icoAdaptiveMediaColors != null)
+            {
+                icoAdaptiveMediaColors.Foreground = active
+                    ? new SolidColorBrush(_themeColor)
+                    : (this.Resources["IslandForegroundBrush"] as SolidColorBrush ?? Brushes.White);
+            }
+
+            if (manualColorsPanel != null)
+            {
+                manualColorsPanel.Opacity = active ? 0.45 : 1.0;
+                manualColorsPanel.IsHitTestVisible = !active;
+            }
+        }
+
+        private void ApplyAdaptiveMediaPalette(BitmapSource? thumbnail)
+        {
+            try
+            {
+                if (_config.AdaptiveMediaColors && thumbnail != null)
+                {
+                    var palette = AdaptiveColorService.ExtractPalette(thumbnail, _themeColor);
+                    _themeColor = palette.Accent;
+
+                    AnimateResourceBrush("IslandBackgroundBrush", palette.Background);
+                    AnimateResourceBrush("IslandInactiveBrush", palette.InactiveSurface);
+                    AnimateResourceBrush("ThemeAccentBrush", palette.Accent);
+                    AnimateResourceBrush("ThemeAccentTrackBrush", palette.Accent);
+                    AnimateResourceBrush("WaveformAccentBrush", palette.Waveform);
+                    AnimateResourceBrush("IslandForegroundBrush", palette.Foreground);
+                    AnimateResourceBrush("IslandSecondaryForegroundBrush", palette.SecondaryForeground);
+
+                    if (!_isInitializing) InitializeTogglesUI();
+                    UpdateMediaProgressFillTextContrast();
+                    UpdateAdaptiveMediaModeUI();
+                }
+                else
+                {
+                    // Restaura suavemente as cores manuais salvas do usuário
+                    ApplyThemeColor(_config.ThemeColor);
+                    ApplyBgColor(_config.BackgroundColor);
+                    ApplyInactiveColor(_config.InactiveColor);
+                    UpdateAdaptiveMediaModeUI();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ApplyAdaptiveMediaPalette] {ex.Message}");
+            }
+        }
+
+        private void AnimateResourceBrush(string resourceKey, Color targetColor)
+        {
+            if (this.Resources[resourceKey] is SolidColorBrush currentBrush && !currentBrush.IsFrozen)
+            {
+                var anim = new ColorAnimation(targetColor, TimeSpan.FromMilliseconds(350))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                currentBrush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
+            }
+            else
+            {
+                this.Resources[resourceKey] = new SolidColorBrush(targetColor);
+            }
+        }
+
         private void ApplyThemeColor(string hexColor)
         {
             try
@@ -285,14 +385,20 @@ namespace DynamicIslandWindows
                 if (colorObj != null)
                 {
                     _themeColor = (Color)colorObj;
-                    this.Resources["ThemeAccentBrush"] = new SolidColorBrush(_themeColor);
+                    AnimateResourceBrush("ThemeAccentBrush", _themeColor);
                     
                     var trackColor = Color.FromRgb(_themeColor.R, _themeColor.G, _themeColor.B);
-                    this.Resources["ThemeAccentTrackBrush"] = new SolidColorBrush(trackColor);
+                    AnimateResourceBrush("ThemeAccentTrackBrush", trackColor);
+
+                    if (_lastThumbBytes == null)
+                    {
+                        UpdateWaveformColor(null);
+                    }
 
                     txtAccentHex.Text = hexColor;
                     UpdateColorSelectionUI(hexColor);
                     if (!_isInitializing) InitializeTogglesUI();
+                    UpdateMediaProgressFillTextContrast();
                 }
             }
             catch (Exception ex)
@@ -311,7 +417,9 @@ namespace DynamicIslandWindows
                 {
                     var color = (Color)colorObj;
                     color.A = 255; // Garante opacidade 100% opaca
-                    this.Resources["IslandBackgroundBrush"] = new SolidColorBrush(color);
+                    AnimateResourceBrush("IslandBackgroundBrush", color);
+                    AnimateResourceBrush("IslandForegroundBrush", AdaptiveColorService.GetAccessibleForeground(color));
+                    AnimateResourceBrush("IslandSecondaryForegroundBrush", AdaptiveColorService.GetAccessibleSecondaryForeground(color));
                     txtBgHex.Text = hexColor;
                     UpdateBgSelectionUI(hexColor);
                 }
@@ -331,7 +439,7 @@ namespace DynamicIslandWindows
                 if (colorObj != null)
                 {
                     var color = (Color)colorObj;
-                    this.Resources["IslandInactiveBrush"] = new SolidColorBrush(color);
+                    AnimateResourceBrush("IslandInactiveBrush", color);
                     txtInactHex.Text = hexColor;
                     UpdateInactSelectionUI(hexColor);
                     if (!_isInitializing) InitializeTogglesUI();
