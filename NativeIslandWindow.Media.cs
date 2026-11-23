@@ -124,8 +124,34 @@ namespace DynamicIslandWindows
                         
                         AnimateTextChange(txtMiniTitle, state.Title);
                         AnimateTextChange(txtMiniSubtitle, state.Subtitle);
+                        if (txtMediaExpandedTitle != null)
+                        {
+                            txtMediaExpandedTitle.Text = state.Title;
+                        }
                         txtMiniPlayIcon.Text = expectedPlayGlyph;
                         UpdateWaveformAnimation(state.IsPlaying);
+
+                        _isMediaPlaying = state.IsPlaying;
+                        _mediaHasTimeline = state.HasTimeline && state.Duration > TimeSpan.Zero;
+                        _mediaDuration = state.Duration;
+                        if (_mediaHasTimeline)
+                        {
+                            var pos = state.Position;
+                            if (state.IsPlaying && state.LastUpdatedTime > DateTimeOffset.MinValue)
+                            {
+                                var delta = DateTimeOffset.UtcNow - state.LastUpdatedTime;
+                                if (delta > TimeSpan.Zero && delta < TimeSpan.FromHours(12))
+                                    pos += delta;
+                            }
+                            if (pos < TimeSpan.Zero) pos = TimeSpan.Zero;
+                            if (pos > state.Duration) pos = state.Duration;
+                            _mediaBasePosition = pos;
+                            _mediaPositionCapturedUtc = DateTimeOffset.UtcNow;
+                        }
+                        else
+                        {
+                            _mediaBasePosition = TimeSpan.Zero;
+                        }
 
                         if (thumbUnchanged)
                         {
@@ -154,6 +180,10 @@ namespace DynamicIslandWindows
                     else
                     {
                         _lastThumbBytes = null;
+                        _isMediaPlaying = false;
+                        _mediaHasTimeline = false;
+                        _mediaBasePosition = TimeSpan.Zero;
+                        _mediaDuration = TimeSpan.Zero;
                         UpdateWaveformAnimation(false);
                         miniMediaControls.Visibility = Visibility.Collapsed;
                         AnimateTextChange(txtMiniTitle, state.Title);
@@ -172,6 +202,8 @@ namespace DynamicIslandWindows
                     }
 
                     UpdateDinoState();
+                    UpdateBottomExpandedState();
+                    UpdateMediaProgressUI();
                 });
             }
             catch (Exception ex) { Debug.WriteLine($"[UpdateMedia] {ex.Message}"); }
@@ -673,6 +705,7 @@ private static void StopWaveBar(Border bar, double restH)
             UpdateWaveformAnimation(false);
             try
             {
+                _mediaProgressTimer?.Stop();
                 _visualizerTimer?.Stop();
                 _meterDevice?.Dispose();
                 _meterEnumerator?.Dispose();
@@ -683,6 +716,197 @@ private static void StopWaveBar(Border bar, double restH)
                 _mediaService.StateChanged -= MediaService_StateChanged;
                 _mediaService.Dispose();
             }
+        }
+
+        // ─── Estado Expandido da Barra Inferior (Pílula de Progresso de Mídia) ───
+        private TimeSpan _mediaBasePosition = TimeSpan.Zero;
+        private TimeSpan _mediaDuration = TimeSpan.Zero;
+        private DateTimeOffset _mediaPositionCapturedUtc = DateTimeOffset.MinValue;
+        private bool _mediaHasTimeline = false;
+        private bool _isMediaPlaying = false;
+        private bool _isScrubbingMedia = false;
+        private DispatcherTimer? _mediaProgressTimer;
+
+        internal void UpdateBottomExpandedState()
+        {
+            if (miniCompactTextPanel == null || expandedMediaProgressPill == null) return;
+
+            bool showExpandedPill = _isIslandOpen && _currentMode == MediaMode.Music;
+
+            if (showExpandedPill)
+            {
+                miniCompactTextPanel.Visibility = Visibility.Collapsed;
+                if (expandedMediaProgressPill.Visibility != Visibility.Visible)
+                {
+                    expandedMediaProgressPill.Opacity = 0;
+                    expandedMediaProgressPill.Visibility = Visibility.Visible;
+                    var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
+                    {
+                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                    };
+                    expandedMediaProgressPill.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+                }
+
+                UpdateMediaProgressUI();
+
+                if (_mediaProgressTimer == null)
+                {
+                    _mediaProgressTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+                    _mediaProgressTimer.Tick += (s, e) =>
+                    {
+                        if (_isIslandOpen && _currentMode == MediaMode.Music && !_isScrubbingMedia)
+                        {
+                            UpdateMediaProgressUI();
+                        }
+                    };
+                }
+                if (!_mediaProgressTimer.IsEnabled)
+                {
+                    _mediaProgressTimer.Start();
+                }
+            }
+            else
+            {
+                _mediaProgressTimer?.Stop();
+                expandedMediaProgressPill.Visibility = Visibility.Collapsed;
+                if (miniCompactTextPanel.Visibility != Visibility.Visible)
+                {
+                    miniCompactTextPanel.Opacity = 0;
+                    miniCompactTextPanel.Visibility = Visibility.Visible;
+                    var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160))
+                    {
+                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                    };
+                    miniCompactTextPanel.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+                }
+            }
+        }
+
+        private TimeSpan GetCurrentMediaPosition()
+        {
+            if (!_mediaHasTimeline || _mediaDuration <= TimeSpan.Zero) return TimeSpan.Zero;
+
+            var pos = _mediaBasePosition;
+            if (_isMediaPlaying && _mediaPositionCapturedUtc > DateTimeOffset.MinValue)
+            {
+                var elapsed = DateTimeOffset.UtcNow - _mediaPositionCapturedUtc;
+                if (elapsed > TimeSpan.Zero) pos += elapsed;
+            }
+            if (pos < TimeSpan.Zero) return TimeSpan.Zero;
+            if (pos > _mediaDuration) return _mediaDuration;
+            return pos;
+        }
+
+        private void UpdateMediaProgressUI(TimeSpan? overridePosition = null)
+        {
+            if (txtMediaElapsed == null || txtMediaRemaining == null || mediaProgressFill == null || mediaProgressGrid == null) return;
+
+            if (!_mediaHasTimeline || _mediaDuration <= TimeSpan.Zero)
+            {
+                txtMediaElapsed.Text = "0:00";
+                txtMediaRemaining.Text = "-0:00";
+                mediaProgressFill.Width = 0;
+                return;
+            }
+
+            var currentPos = overridePosition ?? GetCurrentMediaPosition();
+            var remaining = _mediaDuration - currentPos;
+            if (remaining < TimeSpan.Zero) remaining = TimeSpan.Zero;
+
+            txtMediaElapsed.Text = FormatMediaTime(currentPos);
+            txtMediaRemaining.Text = "-" + FormatMediaTime(remaining);
+
+            double totalWidth = mediaProgressGrid.ActualWidth;
+            if (totalWidth > 0)
+            {
+                double ratio = Math.Clamp(currentPos.TotalSeconds / _mediaDuration.TotalSeconds, 0.0, 1.0);
+                mediaProgressFill.Width = totalWidth * ratio;
+            }
+
+            UpdateMediaProgressFillTextContrast();
+        }
+
+        private void UpdateMediaProgressFillTextContrast()
+        {
+            if (TryFindResource("ThemeAccentBrush") is SolidColorBrush accentBrush)
+            {
+                var c = accentBrush.Color;
+                double luminance = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255.0;
+                var fg = luminance > 0.55
+                    ? new SolidColorBrush(Color.FromRgb(0x12, 0x12, 0x12))
+                    : Brushes.White;
+                if (txtMediaElapsedFill != null) txtMediaElapsedFill.Foreground = fg;
+                if (txtMediaExpandedTitleFill != null) txtMediaExpandedTitleFill.Foreground = fg;
+                if (txtMediaRemainingFill != null) txtMediaRemainingFill.Foreground = fg;
+            }
+        }
+
+        private static string FormatMediaTime(TimeSpan time)
+        {
+            if (time.TotalHours >= 1)
+                return $"{(int)time.TotalHours}:{time.Minutes:D2}:{time.Seconds:D2}";
+            return $"{(int)time.TotalMinutes}:{time.Seconds:D2}";
+        }
+
+        private void MediaProgress_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (mediaProgressGrid == null || mediaProgressFillOverlay == null) return;
+            double w = mediaProgressGrid.ActualWidth;
+            double h = mediaProgressGrid.ActualHeight;
+            if (w > 0 && h > 0)
+            {
+                mediaProgressGrid.Clip = new RectangleGeometry(new Rect(0, 0, w, h), 14, 14);
+                mediaProgressFillOverlay.Width = w;
+                mediaProgressFillOverlay.Height = h;
+                UpdateMediaProgressUI();
+            }
+        }
+
+        private TimeSpan CalculateScrubPosition(MouseEventArgs e)
+        {
+            if (mediaProgressGrid == null || !_mediaHasTimeline || _mediaDuration <= TimeSpan.Zero)
+                return TimeSpan.Zero;
+
+            double width = mediaProgressGrid.ActualWidth;
+            if (width <= 0) return TimeSpan.Zero;
+
+            double x = Math.Clamp(e.GetPosition(mediaProgressGrid).X, 0.0, width);
+            double ratio = x / width;
+            return TimeSpan.FromSeconds(_mediaDuration.TotalSeconds * ratio);
+        }
+
+        private void MediaProgress_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            if (!_mediaHasTimeline || _mediaDuration <= TimeSpan.Zero) return;
+
+            _isScrubbingMedia = true;
+            expandedMediaProgressPill.CaptureMouse();
+            var target = CalculateScrubPosition(e);
+            UpdateMediaProgressUI(target);
+        }
+
+        private void MediaProgress_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_isScrubbingMedia) return;
+            e.Handled = true;
+            var target = CalculateScrubPosition(e);
+            UpdateMediaProgressUI(target);
+        }
+
+        private async void MediaProgress_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_isScrubbingMedia) return;
+            e.Handled = true;
+            _isScrubbingMedia = false;
+            expandedMediaProgressPill.ReleaseMouseCapture();
+
+            var target = CalculateScrubPosition(e);
+            _mediaBasePosition = target;
+            _mediaPositionCapturedUtc = DateTimeOffset.UtcNow;
+            UpdateMediaProgressUI(target);
+
+            await _mediaService.SeekAsync(target);
         }
     }
 }

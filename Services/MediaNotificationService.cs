@@ -37,6 +37,10 @@ namespace DynamicIslandWindows.Services
         [Obsolete("Utilize ThumbnailBytes para evitar conversões e alocações de string.")]
         public string Thumbnail => ThumbnailBytes != null && ThumbnailBytes.Length > 0 ? Convert.ToBase64String(ThumbnailBytes) : string.Empty;
         public bool IsPlaying { get; set; } = false;
+        public TimeSpan Position { get; set; } = TimeSpan.Zero;
+        public TimeSpan Duration { get; set; } = TimeSpan.Zero;
+        public DateTimeOffset LastUpdatedTime { get; set; } = DateTimeOffset.MinValue;
+        public bool HasTimeline { get; set; } = false;
     }
 
     /// <summary>
@@ -170,6 +174,7 @@ namespace DynamicIslandWindows.Services
                 {
                     _currentSession.PlaybackInfoChanged -= OnSessionPlaybackInfoChanged;
                     _currentSession.MediaPropertiesChanged -= OnSessionMediaPropertiesChanged;
+                    _currentSession.TimelinePropertiesChanged -= OnSessionTimelinePropertiesChanged;
                 }
                 catch (Exception ex)
                 {
@@ -186,6 +191,7 @@ namespace DynamicIslandWindows.Services
                 {
                     _currentSession.PlaybackInfoChanged += OnSessionPlaybackInfoChanged;
                     _currentSession.MediaPropertiesChanged += OnSessionMediaPropertiesChanged;
+                    _currentSession.TimelinePropertiesChanged += OnSessionTimelinePropertiesChanged;
                 }
                 catch (Exception ex)
                 {
@@ -203,6 +209,11 @@ namespace DynamicIslandWindows.Services
         {
             _cachedMusicThumbnailBytes = null;
             _noThumbnailAvailable = false;
+            StateChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void OnSessionTimelinePropertiesChanged(GlobalSystemMediaTransportControlsSession sender, TimelinePropertiesChangedEventArgs args)
+        {
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -331,6 +342,27 @@ namespace DynamicIslandWindows.Services
                         _cachedMusicTitle = title;
                         _cachedMusicArtist = artist;
                         _cachedMusicIsPlaying = state.IsPlaying;
+
+                        try
+                        {
+                            var timeline = session.GetTimelineProperties();
+                            if (timeline != null && timeline.EndTime > timeline.StartTime)
+                            {
+                                var duration = timeline.EndTime - timeline.StartTime;
+                                var pos = timeline.Position - timeline.StartTime;
+                                if (pos < TimeSpan.Zero) pos = TimeSpan.Zero;
+                                if (pos > duration) pos = duration;
+
+                                state.Duration = duration;
+                                state.Position = pos;
+                                state.LastUpdatedTime = timeline.LastUpdatedTime;
+                                state.HasTimeline = true;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[MediaNotificationService.GetCurrentStateAsync] Timeline: {ex.Message}");
+                        }
                     }
                 }
                 else
@@ -531,6 +563,29 @@ namespace DynamicIslandWindows.Services
             }
         }
 
+        public async Task SeekAsync(TimeSpan targetPosition)
+        {
+            try
+            {
+                GlobalSystemMediaTransportControlsSession? session;
+                lock (_sessionLock) { session = _currentSession; }
+                if (session == null) return;
+
+                var timeline = session.GetTimelineProperties();
+                var startTime = timeline?.StartTime ?? TimeSpan.Zero;
+                var endTime = timeline?.EndTime ?? TimeSpan.Zero;
+                var requested = startTime + targetPosition;
+                if (requested < startTime) requested = startTime;
+                if (endTime > startTime && requested > endTime) requested = endTime;
+
+                await session.TryChangePlaybackPositionAsync(requested.Ticks);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MediaNotificationService.SeekAsync] {ex.Message}");
+            }
+        }
+
         public void Dispose()
         {
             lock (_sessionLock)
@@ -545,6 +600,7 @@ namespace DynamicIslandWindows.Services
                 {
                     _currentSession.PlaybackInfoChanged -= OnSessionPlaybackInfoChanged;
                     _currentSession.MediaPropertiesChanged -= OnSessionMediaPropertiesChanged;
+                    _currentSession.TimelinePropertiesChanged -= OnSessionTimelinePropertiesChanged;
                 }
                 catch (Exception ex)
                 {

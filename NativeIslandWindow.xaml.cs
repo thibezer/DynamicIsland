@@ -772,6 +772,7 @@ namespace DynamicIslandWindows
             expandedIslandPanel.Visibility = Visibility.Visible;
 
             miniIslandPanel.Visibility = Visibility.Visible;
+            UpdateBottomExpandedState();
             dropZonePanel.Visibility = Visibility.Collapsed;
             appearancePanel.Visibility = Visibility.Collapsed;
             wifiPanel.Visibility = Visibility.Collapsed;
@@ -884,6 +885,7 @@ namespace DynamicIslandWindows
             if (dropZonePanel != null) dropZonePanel.Visibility = Visibility.Collapsed;
 
             miniIslandPanel.Visibility = Visibility.Visible;
+            UpdateBottomExpandedState();
 
             double dynamicWidth = GetDynamicCompactWidth();
 
