@@ -178,6 +178,7 @@ namespace DynamicIslandWindows
         private readonly ExcelService _excelService;
         private readonly HardwareService _hardwareService;
         private readonly MediaNotificationService _mediaService;
+        private readonly YouTubePipService _youtubePipService;
         private AppHotkeyService? _hotkeyService;
         private DispatcherTimer? _hotkeyNotificationTimer;
 
@@ -189,6 +190,8 @@ namespace DynamicIslandWindows
             _excelService = new ExcelService();
             _hardwareService = new HardwareService();
             _mediaService = new MediaNotificationService();
+            _youtubePipService = new YouTubePipService();
+            _youtubePipService.Start();
             
             _mediaService.StateChanged += MediaService_StateChanged;
 

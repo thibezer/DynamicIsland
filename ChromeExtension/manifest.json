@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Dynamic Island YouTube PiP",
+  "version": "1.0.0",
+  "description": "Conecta o Chrome à Dynamic Island do Windows para abrir o Picture-in-Picture do YouTube ao arrastar a capa.",
+  "permissions": [
+    "tabs",
+    "debugger",
+    "alarms"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

@@ -12,6 +12,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using DynamicIslandWindows.Controls;
 using DynamicIslandWindows.Services;
 
 namespace DynamicIslandWindows
@@ -412,6 +413,140 @@ namespace DynamicIslandWindows
         private async void Repeat_Click(object sender, MouseButtonEventArgs e)
         { e.Handled = true; await _mediaService.HandleMediaCommandAsync(MediaCommand.Repeat); await UpdateMediaInfoAsync(); }
 
+        // ─── Arrasto da Capa para Picture-in-Picture (YouTube + Chrome) ──────────
+        private bool _isThumbPressed = false;
+        private bool _isDraggingThumbForPip = false;
+        private Point _thumbPressScreenPos;
+        private PipDragPreviewWindow? _pipDragPreviewWindow;
+
+        private void MiniThumb_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (_currentMode != MediaMode.Music || miniThumbBorder.Visibility != Visibility.Visible)
+                return;
+
+            // Preserva o duplo clique para o Dino Easter Egg
+            if (e.ClickCount != 1)
+                return;
+
+            _isThumbPressed = true;
+            _isDraggingThumbForPip = false;
+            _thumbPressScreenPos = PointToScreen(e.GetPosition(this));
+            miniIconContainer.CaptureMouse();
+            e.Handled = true;
+        }
+
+        private void MiniThumb_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_isThumbPressed)
+                return;
+
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                CancelThumbDrag();
+                return;
+            }
+
+            Point currentScreenPx = PointToScreen(e.GetPosition(this));
+
+            if (!_isDraggingThumbForPip)
+            {
+                double dx = currentScreenPx.X - _thumbPressScreenPos.X;
+                double dy = currentScreenPx.Y - _thumbPressScreenPos.Y;
+                if (Math.Sqrt(dx * dx + dy * dy) < 10.0)
+                    return;
+
+                _isDraggingThumbForPip = true;
+                _pipDragPreviewWindow = new PipDragPreviewWindow(_currentMediaThumbnail);
+                _pipDragPreviewWindow.Show();
+            }
+
+            if (_pipDragPreviewWindow != null)
+            {
+                var dpi = VisualTreeHelper.GetDpi(this);
+                double dipX = currentScreenPx.X / dpi.DpiScaleX;
+                double dipY = currentScreenPx.Y / dpi.DpiScaleY;
+                bool isInsideIsland = IsPointInsideIsland(dipX, dipY);
+                _pipDragPreviewWindow.UpdateDragState(dipX, dipY, isInsideIsland);
+            }
+        }
+
+        private async void MiniThumb_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_isThumbPressed)
+                return;
+
+            bool wasDragging = _isDraggingThumbForPip;
+            Point releaseScreenPx = PointToScreen(e.GetPosition(this));
+            CancelThumbDrag();
+            e.Handled = true;
+
+            if (wasDragging)
+            {
+                var dpi = VisualTreeHelper.GetDpi(this);
+                double dipX = releaseScreenPx.X / dpi.DpiScaleX;
+                double dipY = releaseScreenPx.Y / dpi.DpiScaleY;
+
+                // Se soltou fora da ilha, ativa/move o PiP exatamente para onde o usuário soltou
+                if (!IsPointInsideIsland(dipX, dipY))
+                {
+                    var outcome = await _youtubePipService.OpenOrMovePipAsync(
+                        (int)Math.Round(releaseScreenPx.X),
+                        (int)Math.Round(releaseScreenPx.Y));
+
+                    if (outcome == PipTriggerOutcome.ExtensionNotConnected)
+                    {
+                        ShowTemporaryPipStatus("Instale/ative a extensão PiP no Chrome");
+                    }
+                    else if (outcome == PipTriggerOutcome.NoYouTubeTabFound)
+                    {
+                        ShowTemporaryPipStatus("Nenhuma aba do YouTube encontrada");
+                    }
+                }
+            }
+            else if (!_isIslandOpen && !_isDropZoneActive)
+            {
+                // Clique simples sem arrastar mantém o comportamento padrão de abrir a ilha
+                OpenIsland();
+            }
+        }
+
+        private void MiniThumb_LostMouseCapture(object sender, MouseEventArgs e)
+        {
+            CancelThumbDrag();
+        }
+
+        private void CancelThumbDrag()
+        {
+            _isThumbPressed = false;
+            _isDraggingThumbForPip = false;
+
+            if (miniIconContainer.IsMouseCaptured)
+            {
+                miniIconContainer.ReleaseMouseCapture();
+            }
+
+            if (_pipDragPreviewWindow != null)
+            {
+                try { _pipDragPreviewWindow.Close(); } catch { }
+                _pipDragPreviewWindow = null;
+            }
+        }
+
+        private bool IsPointInsideIsland(double dipX, double dipY)
+        {
+            return dipX >= Left && dipX <= Left + ActualWidth &&
+                   dipY >= Top && dipY <= Top + ActualHeight;
+        }
+
+        private void ShowTemporaryPipStatus(string message)
+        {
+            try
+            {
+                txtMiniSubtitle.Text = message;
+            }
+            catch { }
+        }
+
         // ─── Dino Easter Egg ──────────────────────────────────────────────────────
         private void MiniIconContainer_MouseDown(object sender, MouseButtonEventArgs e)
         {
@@ -730,6 +865,7 @@ private static void StopWaveBar(Border bar, double restH)
 
         private void DisposeMedia()
         {
+            CancelThumbDrag();
             UpdateWaveformAnimation(false);
             try
             {
@@ -739,6 +875,7 @@ private static void StopWaveBar(Border bar, double restH)
                 _meterEnumerator?.Dispose();
             }
             catch { }
+            try { _youtubePipService?.Dispose(); } catch { }
             if (_mediaService != null)
             {
                 _mediaService.StateChanged -= MediaService_StateChanged;
