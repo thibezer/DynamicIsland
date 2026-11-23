@@ -297,6 +297,7 @@
                     DragLeave="Window_DragLeave"
                     Drop="Window_Drop"
                     MouseLeftButtonDown="IslandBorder_MouseLeftButtonDown"
+                    MouseRightButtonDown="IslandBorder_MouseRightButtonDown"
                     PreviewMouseMove="IslandBorder_PreviewMouseMove"
                     PreviewMouseLeftButtonUp="IslandBorder_PreviewMouseLeftButtonUp"
                     PreviewMouseWheel="IslandBorder_PreviewMouseWheel">
@@ -837,14 +838,9 @@
                             <Grid Name="mediaProgressGrid">
                                 <!-- Camada base (parte não preenchida: texto claro sobre fundo escuro) -->
                                 <Grid Margin="10,0,10,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Name="txtMediaElapsed" Style="{StaticResource FluentText}" FontSize="10" FontWeight="Medium" Foreground="#B3FFFFFF" Text="0:00" VerticalAlignment="Center" />
-                                    <TextBlock Grid.Column="1" Name="txtMediaExpandedTitle" Style="{StaticResource FluentText}" FontSize="11" FontWeight="SemiBold" Foreground="White" Text="Carregando..." HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="8,0" />
-                                    <TextBlock Grid.Column="2" Name="txtMediaRemaining" Style="{StaticResource FluentText}" FontSize="10" FontWeight="Medium" Foreground="#B3FFFFFF" Text="-0:00" VerticalAlignment="Center" />
+                                    <TextBlock Name="txtMediaElapsed" Style="{StaticResource FluentText}" FontSize="10" FontWeight="Medium" Typography.NumeralAlignment="Tabular" Foreground="#B3FFFFFF" Text="0:00" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,-1.5,0,0" />
+                                    <TextBlock Name="txtMediaExpandedTitle" Style="{StaticResource FluentText}" FontSize="11" FontWeight="SemiBold" Foreground="White" Text="Carregando..." HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="44,0,44,0" />
+                                    <TextBlock Name="txtMediaRemaining" Style="{StaticResource FluentText}" FontSize="10" FontWeight="Medium" Typography.NumeralAlignment="Tabular" Foreground="#B3FFFFFF" Text="-0:00" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,-1.5,0,0" />
                                 </Grid>
 
                                 <!-- Camada preenchida (progresso: texto escuro contrastante sobre cor de destaque) -->
@@ -856,14 +852,9 @@
                                         IsHitTestVisible="False">
                                     <Grid Name="mediaProgressFillOverlay" HorizontalAlignment="Left">
                                         <Grid Margin="10,0,10,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Name="txtMediaElapsedFill" Style="{StaticResource FluentText}" FontSize="10" FontWeight="Medium" Foreground="#FF121212" Text="{Binding Text, ElementName=txtMediaElapsed}" VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="1" Name="txtMediaExpandedTitleFill" Style="{StaticResource FluentText}" FontSize="11" FontWeight="SemiBold" Foreground="#FF121212" Text="{Binding Text, ElementName=txtMediaExpandedTitle}" HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="8,0" />
-                                            <TextBlock Grid.Column="2" Name="txtMediaRemainingFill" Style="{StaticResource FluentText}" FontSize="10" FontWeight="Medium" Foreground="#FF121212" Text="{Binding Text, ElementName=txtMediaRemaining}" VerticalAlignment="Center" />
+                                            <TextBlock Name="txtMediaElapsedFill" Style="{StaticResource FluentText}" FontSize="10" FontWeight="Medium" Typography.NumeralAlignment="Tabular" Foreground="#FF121212" Text="{Binding Text, ElementName=txtMediaElapsed}" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="0,-1.5,0,0" />
+                                            <TextBlock Name="txtMediaExpandedTitleFill" Style="{StaticResource FluentText}" FontSize="11" FontWeight="SemiBold" Foreground="#FF121212" Text="{Binding Text, ElementName=txtMediaExpandedTitle}" HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="44,0,44,0" />
+                                            <TextBlock Name="txtMediaRemainingFill" Style="{StaticResource FluentText}" FontSize="10" FontWeight="Medium" Typography.NumeralAlignment="Tabular" Foreground="#FF121212" Text="{Binding Text, ElementName=txtMediaRemaining}" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,-1.5,0,0" />
                                         </Grid>
                                     </Grid>
                                 </Border>

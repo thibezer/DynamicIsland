@@ -264,8 +264,15 @@ namespace DynamicIslandWindows
 
         private double GetDynamicCompactWidth()
         {
-            if (_cachedCompactWidth > 0) return _cachedCompactWidth;
-            return CalculateCompactWidth(txtMiniTitle?.Text ?? "", txtMiniSubtitle?.Text ?? "", miniMediaControls?.Visibility == Visibility.Visible);
+            double width = _cachedCompactWidth > 0
+                ? _cachedCompactWidth
+                : CalculateCompactWidth(txtMiniTitle?.Text ?? "", txtMiniSubtitle?.Text ?? "", miniMediaControls?.Visibility == Visibility.Visible);
+
+            if (_forceCompactProgressBar && _currentMode == MediaMode.Music)
+            {
+                return Math.Max(width, 380);
+            }
+            return width;
         }
 
         /// <summary>
@@ -725,13 +732,28 @@ private static void StopWaveBar(Border bar, double restH)
         private bool _mediaHasTimeline = false;
         private bool _isMediaPlaying = false;
         private bool _isScrubbingMedia = false;
+        private bool _forceCompactProgressBar = false;
         private DispatcherTimer? _mediaProgressTimer;
+
+        private void IslandBorder_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (_currentMode != MediaMode.Music) return;
+            e.Handled = true;
+            _forceCompactProgressBar = !_forceCompactProgressBar;
+            UpdateBottomExpandedState();
+
+            if (!_isIslandOpen && !_isDropZoneActive)
+            {
+                double targetW = GetDynamicCompactWidth();
+                AnimateBorder(targetW, _miniBaseHeightLogica);
+            }
+        }
 
         internal void UpdateBottomExpandedState()
         {
             if (miniCompactTextPanel == null || expandedMediaProgressPill == null) return;
 
-            bool showExpandedPill = _isIslandOpen && _currentMode == MediaMode.Music;
+            bool showExpandedPill = _currentMode == MediaMode.Music && (_isIslandOpen || _forceCompactProgressBar);
 
             if (showExpandedPill)
             {
@@ -754,7 +776,7 @@ private static void StopWaveBar(Border bar, double restH)
                     _mediaProgressTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
                     _mediaProgressTimer.Tick += (s, e) =>
                     {
-                        if (_isIslandOpen && _currentMode == MediaMode.Music && !_isScrubbingMedia)
+                        if ((_isIslandOpen || _forceCompactProgressBar) && _currentMode == MediaMode.Music && !_isScrubbingMedia)
                         {
                             UpdateMediaProgressUI();
                         }
