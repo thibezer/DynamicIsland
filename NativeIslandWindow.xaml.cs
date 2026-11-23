@@ -744,10 +744,13 @@ namespace DynamicIslandWindows
             Color targetColor,
             TimeSpan duration)
         {
-            if (element.GetValue(brushProperty) is not SolidColorBrush currentBrush || currentBrush.IsFrozen)
+            // Nunca animar um SolidColorBrush compartilhado (ex: DynamicResource de Window.Resources
+            // ou herdado de Style), senão todos os controles que usam o mesmo recurso mudam juntos.
+            if (element.ReadLocalValue(brushProperty) is not SolidColorBrush localBrush || localBrush.IsFrozen)
             {
-                currentBrush = new SolidColorBrush(Colors.Transparent);
-                element.SetValue(brushProperty, currentBrush);
+                Color startColor = (element.GetValue(brushProperty) as SolidColorBrush)?.Color ?? Colors.Transparent;
+                localBrush = new SolidColorBrush(startColor);
+                element.SetValue(brushProperty, localBrush);
             }
 
             var anim = new ColorAnimation
@@ -757,7 +760,7 @@ namespace DynamicIslandWindows
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
             };
 
-            currentBrush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
+            localBrush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
         }
 
         private void OpenIsland()
