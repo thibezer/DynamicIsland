@@ -593,7 +593,7 @@ namespace DynamicIslandWindows
 
         private void IslandBorder_MouseEnter(object sender, MouseEventArgs e)
         {
-            if (_isFullScreenCached) return;
+            if (_isFullScreenCached || _isThumbPressed || _isDraggingThumbForPip) return;
 
             EnsureTopmost();
             _closeDelayTimer?.Stop();
@@ -609,8 +609,8 @@ namespace DynamicIslandWindows
         {
             _openDelayTimer?.Stop();
 
-            // PROTEÇÃO: Se o painel Wi-Fi está em transição, não inicia o timer de fechamento
-            if (_isWifiPanelTransitioning) return;
+            // PROTEÇÃO: Se o painel Wi-Fi está em transição ou arrastando a capa para PiP, não fecha
+            if (_isWifiPanelTransitioning || _isThumbPressed || _isDraggingThumbForPip) return;
 
             if (_isIslandOpen || _isDropZoneActive)
             {
@@ -628,7 +628,7 @@ namespace DynamicIslandWindows
         private void OpenDelayTimer_Tick(object? sender, EventArgs e)
         {
             _openDelayTimer?.Stop();
-            if (islandBorder.IsMouseOver && !_isIslandOpen && !_isFullScreenCached)
+            if (islandBorder.IsMouseOver && !_isIslandOpen && !_isFullScreenCached && !_isThumbPressed && !_isDraggingThumbForPip)
             {
                 OpenIsland();
             }
@@ -637,6 +637,7 @@ namespace DynamicIslandWindows
         private void CloseDelayTimer_Tick(object? sender, EventArgs e)
         {
             _closeDelayTimer?.Stop();
+            if (_isThumbPressed || _isDraggingThumbForPip) return;
             if (!islandBorder.IsMouseOver)
             {
                 if (_isDropZoneActive)

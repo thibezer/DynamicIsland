@@ -4,6 +4,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -418,6 +419,22 @@ namespace DynamicIslandWindows
         private bool _isDraggingThumbForPip = false;
         private Point _thumbPressScreenPos;
         private PipDragPreviewWindow? _pipDragPreviewWindow;
+        private DispatcherTimer? _thumbDragTimer;
+
+        private const int VK_LBUTTON = 0x01;
+
+        [DllImport("user32.dll")]
+        private static extern bool GetCursorPos(out POINT_API lpPoint);
+
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT_API
+        {
+            public int X;
+            public int Y;
+        }
 
         private void MiniThumb_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -428,70 +445,82 @@ namespace DynamicIslandWindows
             if (e.ClickCount != 1)
                 return;
 
+            if (!GetCursorPos(out POINT_API pt))
+                return;
+
+            _openDelayTimer?.Stop();
+            _closeDelayTimer?.Stop();
+
             _isThumbPressed = true;
             _isDraggingThumbForPip = false;
-            _thumbPressScreenPos = PointToScreen(e.GetPosition(this));
-            miniIconContainer.CaptureMouse();
+            _thumbPressScreenPos = new Point(pt.X, pt.Y);
+
+            if (_thumbDragTimer == null)
+            {
+                _thumbDragTimer = new DispatcherTimer(DispatcherPriority.Input)
+                {
+                    Interval = TimeSpan.FromMilliseconds(16)
+                };
+                _thumbDragTimer.Tick += ThumbDragTimer_Tick;
+            }
+            _thumbDragTimer.Start();
+
             e.Handled = true;
         }
 
-        private void MiniThumb_MouseMove(object sender, MouseEventArgs e)
+        private async void ThumbDragTimer_Tick(object? sender, EventArgs e)
         {
             if (!_isThumbPressed)
-                return;
-
-            if (e.LeftButton != MouseButtonState.Pressed)
             {
-                CancelThumbDrag();
+                _thumbDragTimer?.Stop();
                 return;
             }
 
-            Point currentScreenPx = PointToScreen(e.GetPosition(this));
+            bool isLeftDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+            GetCursorPos(out POINT_API pt);
+            Point currentScreenPx = new(pt.X, pt.Y);
 
-            if (!_isDraggingThumbForPip)
+            if (isLeftDown)
             {
-                double dx = currentScreenPx.X - _thumbPressScreenPos.X;
-                double dy = currentScreenPx.Y - _thumbPressScreenPos.Y;
-                if (Math.Sqrt(dx * dx + dy * dy) < 10.0)
-                    return;
+                if (!_isDraggingThumbForPip)
+                {
+                    double dx = currentScreenPx.X - _thumbPressScreenPos.X;
+                    double dy = currentScreenPx.Y - _thumbPressScreenPos.Y;
+                    if (Math.Sqrt(dx * dx + dy * dy) < 10.0)
+                        return;
 
-                _isDraggingThumbForPip = true;
-                _pipDragPreviewWindow = new PipDragPreviewWindow(_currentMediaThumbnail);
-                _pipDragPreviewWindow.Show();
-            }
+                    _isDraggingThumbForPip = true;
+                    _pipDragPreviewWindow = new PipDragPreviewWindow(_currentMediaThumbnail);
+                    _pipDragPreviewWindow.Show();
+                }
 
-            if (_pipDragPreviewWindow != null)
-            {
-                var dpi = VisualTreeHelper.GetDpi(this);
-                double dipX = currentScreenPx.X / dpi.DpiScaleX;
-                double dipY = currentScreenPx.Y / dpi.DpiScaleY;
-                bool isInsideIsland = IsPointInsideIsland(dipX, dipY);
-                _pipDragPreviewWindow.UpdateDragState(dipX, dipY, isInsideIsland);
-            }
-        }
-
-        private async void MiniThumb_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            if (!_isThumbPressed)
+                if (_pipDragPreviewWindow != null)
+                {
+                    var dpi = VisualTreeHelper.GetDpi(this);
+                    double dipX = currentScreenPx.X / dpi.DpiScaleX;
+                    double dipY = currentScreenPx.Y / dpi.DpiScaleY;
+                    bool isInsideIsland = IsPointInsideIsland(dipX, dipY);
+                    _pipDragPreviewWindow.UpdateDragState(dipX, dipY, isInsideIsland);
+                }
                 return;
+            }
 
+            // Botão esquerdo foi solto
             bool wasDragging = _isDraggingThumbForPip;
-            Point releaseScreenPx = PointToScreen(e.GetPosition(this));
             CancelThumbDrag();
-            e.Handled = true;
 
             if (wasDragging)
             {
                 var dpi = VisualTreeHelper.GetDpi(this);
-                double dipX = releaseScreenPx.X / dpi.DpiScaleX;
-                double dipY = releaseScreenPx.Y / dpi.DpiScaleY;
+                double dipX = currentScreenPx.X / dpi.DpiScaleX;
+                double dipY = currentScreenPx.Y / dpi.DpiScaleY;
 
                 // Se soltou fora da ilha, ativa/move o PiP exatamente para onde o usuário soltou
                 if (!IsPointInsideIsland(dipX, dipY))
                 {
                     var outcome = await _youtubePipService.OpenOrMovePipAsync(
-                        (int)Math.Round(releaseScreenPx.X),
-                        (int)Math.Round(releaseScreenPx.Y));
+                        (int)Math.Round(currentScreenPx.X),
+                        (int)Math.Round(currentScreenPx.Y));
 
                     if (outcome == PipTriggerOutcome.ExtensionNotConnected)
                     {
@@ -510,20 +539,11 @@ namespace DynamicIslandWindows
             }
         }
 
-        private void MiniThumb_LostMouseCapture(object sender, MouseEventArgs e)
-        {
-            CancelThumbDrag();
-        }
-
         private void CancelThumbDrag()
         {
             _isThumbPressed = false;
             _isDraggingThumbForPip = false;
-
-            if (miniIconContainer.IsMouseCaptured)
-            {
-                miniIconContainer.ReleaseMouseCapture();
-            }
+            _thumbDragTimer?.Stop();
 
             if (_pipDragPreviewWindow != null)
             {

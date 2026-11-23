@@ -864,9 +864,6 @@
                     <Grid Grid.Column="0" Name="miniIconContainer" Width="30" Height="30" Margin="0,0,8,0" VerticalAlignment="Center"
                           MouseDown="MiniIconContainer_MouseDown"
                           PreviewMouseLeftButtonDown="MiniThumb_PreviewMouseLeftButtonDown"
-                          MouseMove="MiniThumb_MouseMove"
-                          MouseLeftButtonUp="MiniThumb_MouseLeftButtonUp"
-                          LostMouseCapture="MiniThumb_LostMouseCapture"
                           Background="Transparent">
                         <Border Name="miniThumbBorder" Width="30" Height="30" CornerRadius="8" ClipToBounds="True" Background="#FF3A3A3C" VerticalAlignment="Center" Visibility="Collapsed" Cursor="Hand" ToolTip="Arraste a capa para posicionar o PiP do YouTube" />
                         <TextBlock Name="txtMiniIcon" Style="{StaticResource FluentIcon}" FontSize="16" Text="&#xE990;" Foreground="#4CC2FF" VerticalAlignment="Center" />
