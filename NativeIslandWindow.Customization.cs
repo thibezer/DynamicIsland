@@ -33,6 +33,7 @@ namespace DynamicIslandWindows
             double totalHeight = CalculateContentHeight(appearancePanel, extraOffset: 4.0);
 
             // Cross-fade fluido: inicia fade-out do expandido e fade-in suave do painel de aparência
+            ClearExpandedPanelCache();
             AnimatePanelOut(expandedIslandPanel);
             AnimatePanelIn(appearancePanel, slideDistance: 12, delayMs: 40);
 
@@ -49,6 +50,7 @@ namespace DynamicIslandWindows
             StopWifiAutoRefresh();
             
             // Fade-out simultâneo dos sub-painéis e entrada suave do painel principal
+            ClearExpandedPanelCache();
             AnimatePanelOut(appearancePanel);
             AnimatePanelOut(wifiPanel);
             wifiPasswordPanel.Visibility = Visibility.Collapsed;

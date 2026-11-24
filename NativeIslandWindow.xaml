@@ -4,7 +4,7 @@
         xmlns:local="clr-namespace:DynamicIslandWindows"
         xmlns:ctrl="clr-namespace:DynamicIslandWindows.Controls"
         Title="Dynamic Island Nativa" 
-        Height="425" Width="430"
+        Height="425" Width="444"
         WindowStyle="None" 
         ResizeMode="NoResize"
         AllowsTransparency="True"
@@ -281,14 +281,19 @@
           - AllowDrop="True" e eventos: Agora o Drag & Drop fica restrito apenas à área física visível da pílula.
         -->
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10">
-            <!-- islandBorder: A casca escura principal da Dynamic Island -->
+            <!-- islandBorder: A casca escura principal da Dynamic Island.
+                 REGRA ANTI-CORTE (Tactile Scale Bleed):
+                 Padding lateral = 6px (não 10px) para que a área interna tenha 398px (410 - 12),
+                 garantindo 5px de folga de cada lado ao redor dos painéis de 388px.
+                 Isso preserva o recuo visual concêntrico de ~11px em repouso (6 + 5) e impede
+                 que ScaleTransform (hover 1.02x / BackEase ~1.05x) ou BitmapCache cortem botões das bordas. -->
             <Border Name="islandBorder"
                     Background="{DynamicResource IslandBackgroundBrush}"
                     CornerRadius="22.5"
                     BorderBrush="Transparent"
                     BorderThickness="0"
                     Margin="0"
-                    Padding="10,6.5,10,6.5"
+                    Padding="6,6.5,6,6.5"
                     Width="300"
                     Height="43"
                     VerticalAlignment="Bottom"
@@ -555,15 +560,16 @@
                     </Grid>
                 </Grid>
 
-                <Grid Name="expandedIslandPanel" Grid.Row="0" Visibility="Collapsed" Margin="0,3.5,0,0">
+                <!-- Margin superior dividido (1.5 no painel + 2 no Grid interno) para dar folga ao ScaleY da linha 0 -->
+                <Grid Name="expandedIslandPanel" Grid.Row="0" Visibility="Collapsed" Margin="0,1.5,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     
-                    <!-- Row 0: Grade de Toggles Rápidos (Espaçamento inferior reduzido para 5px para aproximar do slider) -->
-                    <Grid Grid.Row="0" Margin="0,0,0,5" Width="388" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <!-- Row 0: Grade de Toggles Rápidos (2px no topo para bleed de ScaleY; 5px laterais dentro dos 398px úteis) -->
+                    <Grid Grid.Row="0" Margin="0,2,0,5" Width="388" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="126" />
                             <ColumnDefinition Width="5" />
@@ -775,7 +781,7 @@
                 <!-- 
                   ══ Row 0: Drop Zone (Painel de Arquivo Arrastado - Sem Bordas Internas) ══════════════════════
                 -->
-                <Grid Name="dropZonePanel" Grid.Row="0" Visibility="Collapsed" Margin="8,6,8,8">
+                <Grid Name="dropZonePanel" Grid.Row="0" Visibility="Collapsed" Margin="12,6,12,8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -845,12 +851,12 @@
                   ══ Row 1: Separador Horizontal Discreto ═════════════════════════════
                 -->
                 <Border Grid.Row="1" Name="islandSeparator" Visibility="Collapsed"
-                        Height="1" Background="#FF3A3A3C" Margin="0,0,0,5" />
+                        Height="1" Background="#FF3A3A3C" Margin="4,0,4,5" />
 
                 <!-- 
                   ══ Row 2: Pílula Compacta (Base Central) ════════════════════════════
                 -->
-                <Grid Name="miniIslandPanel" Grid.Row="2" VerticalAlignment="Center"
+                <Grid Name="miniIslandPanel" Grid.Row="2" VerticalAlignment="Center" Margin="4,0,4,0"
                       RenderTransformOrigin="0.5,0.5">
                     <Grid.RenderTransform>
                         <TranslateTransform X="0" />

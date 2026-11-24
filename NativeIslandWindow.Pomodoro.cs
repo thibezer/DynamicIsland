@@ -142,7 +142,8 @@ namespace DynamicIslandWindows
         {
             if (!_pomodoroVisible)
             {
-                this.Width = 430;
+                // 444px = 10px margin esq + 414px (ISLAND_OPEN_W + 4) + overshoot SpringEase + 10px margin dir
+                this.Width = 444;
             }
             else
             {

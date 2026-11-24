@@ -72,3 +72,28 @@ catch (COMException comEx)
 
 * **DispatcherTimers:** Analisou-se todos os temporizadores do aplicativo (`_openDelayTimer`, `_closeDelayTimer`, `_fullscreenTimer`, `_mediaTimer`, `_dragLeaveTimer`). A liberação foi validada no método `Dispose()` da janela principal (chamado pelo evento de fechamento `OnClosed`), que desativa adequadamente cada timer com `.Stop()` e os anula para coleta do GC, prevenindo vazamentos de memória comuns em janelas persistentes.
 * **Win32 Hooks & COM Interop:** O hook nativo de janela (`WndProc`) e o manipulador COM do Excel são liberados de maneira segura com `RemoveHook` e `Marshal.ReleaseComObject` respectivamente nos blocos de finalização, garantindo que o aplicativo DynamicIsland encerre sem deixar processos zumbis ou alocações de memória não gerenciada órfãs no Windows.
+
+---
+
+## 5. Corte Lateral em Botões com Efeito Tátil (`ScaleTransform` + `BitmapCache`)
+
+### Diagnóstico Exato
+* **Sintoma:** Os botões posicionados nas bordas do painel expandido (especialmente a coluna direita: `Avião`, `Pomodoro`, `Partilhar`, `Ficheiros`, e botões de rodapé) tinham o canto arredondado externo decepado em linha reta vertical ao passar o mouse (hover) ou clicar.
+* **Causa Raiz (combinação de 3 fatores):**
+  1. **Folga interna insuficiente (`1px`):** Com `ISLAND_OPEN_W = 410` e `islandBorder.Padding = "10,6.5,10,6.5"`, a área útil interna de `expandedIslandPanel` era de `390px`. Como a grade de toggles e demais painéis internos possuem `Width = "388"`, restava apenas **`1px` de folga** em cada lateral (`(390 - 388) / 2`).
+  2. **Expansão tátil (`TactileBorderButtonStyle`):** O estilo aplica `ScaleX = 1.02` no hover e `BackEase(Amplitude=0.4)` no clique (overshoot de até `~1.045`). Um botão de `126px` cresce entre `1.26px` e `2.84px` para cada lado (e os botões de `191px` do rodapé crescem até `4.3px` por lado), ultrapassando o `1px` de folga disponível.
+  3. **`BitmapCache` no `expandedIslandPanel`:** Em `OpenIsland()`, `expandedIslandPanel.CacheMode = new BitmapCache(...)` rasteriza o painel exatamente no limite de sua largura (`390px`), cortando qualquer `RenderTransform` que exceda essa caixa. Além disso, se o usuário navegasse para Aparência ou Wi-Fi antes do fim da animação de abertura, o `Completed` de `AnimateBorder` era descartado e o `BitmapCache` ficava preso no painel.
+  4. **Largura física justa da `Window` (`430px`):** `10px (margin esq) + 414px (ISLAND_OPEN_W + 4) + overshoot SpringEase + 10px (margin dir)` excedia os `430px` da janela quando o Pomodoro estava oculto.
+
+### Solução Aplicada
+* **Folga segura (bleed) preservando concêntricidade:** Reduziu-se o `Padding` lateral de `islandBorder` de `10` para `6` (`Padding="6,6.5,6,6.5"`), ampliando a área útil interna para `398px` (`5px` de folga real por lado ao redor dos painéis de `388px`). A distância visual em repouso até a borda externa da ilha foi mantida em `~11px` (`6 + 5`), preservando o `CornerRadius` concêntrico (`22.5 - 10 = 12.5`). No topo, o espaçamento de `3.5px` foi dividido em `1.5px` no `expandedIslandPanel` e `2px` na grade de toggles para dar folga ao `ScaleY`.
+* **Alinhamento dos demais painéis:** Adicionou-se `Margin="4,0,4,0"` em `miniIslandPanel` e `islandSeparator`, e `Margin="12,6,12,8"` em `dropZonePanel`, mantendo exatamente o mesmo alinhamento visual de `10px` nas laterais.
+* **Limpeza garantida do `BitmapCache`:** Criou-se `ClearExpandedPanelCache()` em `NativeIslandWindow.xaml.cs` (com `EnableClearType = true` durante a animação), chamado em `OpenIsland`, `CloseIsland`, `AppearanceSettings_Click`, `WifiMenuOpen_Click` e `BackToMainPanel_Click`.
+* **Largura física da `Window`:** Aumentou-se a largura base de `430` para `444` (`NativeIslandWindow.xaml` e `UpdatePhysicalWindowWidth()` em `NativeIslandWindow.Pomodoro.cs`).
+
+### Regra de Prevenção (Para que não volte a acontecer)
+> **REGRA DE LAYOUT WPF — BLEED OBRIGATÓRIO PARA `TactileBorderButtonStyle` E `BitmapCache`:**
+> 1. **Sempre calcule a folga de escala (`bleed`):** Qualquer botão que use `TactileBorderButtonStyle` (`Scale = 1.02` no hover, overshoot `~1.05` no `BackEase`) exige margem mínima livre dentro do container pai de $\ge \text{Width} \times 0.025$ por lado horizontal e $\ge \text{Height} \times 0.025$ por lado vertical (mínimo prático: **`5px` horizontais e `2px` verticais**).
+> 2. **Nunca encoste painéis com `ScaleTransform` na borda de `BitmapCache` ou `ClipToBounds="True"`:** Mantenha `islandBorder.Padding` lateral $\le 6\text{px}$ (ou reduza a largura interna do conteúdo) para que a diferença entre a largura útil do painel (`ISLAND_OPEN_W - PaddingHorizontal`) e a largura do conteúdo seja sempre $\ge 10\text{px}$ (`5px` por lado).
+> 3. **Sempre limpe `CacheMode` em todas as transições de saída:** Nunca dependa apenas de um único callback `Completed` de animação para remover `BitmapCache`; limpe-o também ao trocar de painel ou cancelar animações.
+> 4. **Folga da `Window` física:** A `Window.Width` deve sempre ser $\ge \text{MaxIslandWidth} + 2 \times \text{StackPanel.Margin} + 10\text{px}$ (para absorver overshoot da mola `SpringEase`).

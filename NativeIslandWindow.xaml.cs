@@ -767,6 +767,14 @@ namespace DynamicIslandWindows
             localBrush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
         }
 
+        private void ClearExpandedPanelCache()
+        {
+            if (expandedIslandPanel == null) return;
+            expandedIslandPanel.CacheMode = null;
+            expandedIslandPanel.ClearValue(WidthProperty);
+            expandedIslandPanel.ClearValue(HorizontalAlignmentProperty);
+        }
+
         private void OpenIsland()
         {
             EnsureTopmost();
@@ -797,17 +805,17 @@ namespace DynamicIslandWindows
 
             // Performance: fixa a largura do painel (sem relayout por frame enquanto a borda cresce)
             // e rasteriza o conteúdo uma única vez (fade/slide viram operações baratas de GPU).
+            // Com islandBorder.Padding lateral = 6px, a área útil fica em 398px (5px de folga por lado
+            // ao redor do conteúdo de 388px), evitando clipping de ScaleTransform pelo BitmapCache.
             expandedIslandPanel.HorizontalAlignment = HorizontalAlignment.Center;
             expandedIslandPanel.Width = ISLAND_OPEN_W - (islandBorder.Padding.Left + islandBorder.Padding.Right);
-            expandedIslandPanel.CacheMode = new BitmapCache(Math.Max(_dpiX, 1.0));
+            expandedIslandPanel.CacheMode = new BitmapCache(Math.Max(_dpiX, 1.0)) { EnableClearType = true };
 
             // Animação física do contêiner
             AnimateBorder(ISLAND_OPEN_W, totalHeight, () =>
             {
                 if (!_isIslandOpen) return;
-                expandedIslandPanel.CacheMode = null;               // texto nítido no estado final
-                expandedIslandPanel.ClearValue(WidthProperty);
-                expandedIslandPanel.ClearValue(HorizontalAlignmentProperty);
+                ClearExpandedPanelCache();               // texto nítido e sem clipping no estado final
             });
             ApplyDepthHierarchy(IslandDepth.Expanded);
 
@@ -875,12 +883,7 @@ namespace DynamicIslandWindows
             wifiPasswordPanel.Visibility = Visibility.Collapsed;
 
             // Fade-out rápido dos painéis para transição limpa
-            AnimatePanelOut(expandedIslandPanel, () =>
-            {
-                expandedIslandPanel.CacheMode = null;
-                expandedIslandPanel.ClearValue(WidthProperty);
-                expandedIslandPanel.ClearValue(HorizontalAlignmentProperty);
-            });
+            AnimatePanelOut(expandedIslandPanel, ClearExpandedPanelCache);
             AnimatePanelOut(appearancePanel);
             AnimatePanelOut(wifiPanel);
 

@@ -550,6 +550,7 @@ namespace DynamicIslandWindows
             wifiPanel.Visibility = Visibility.Visible;
 
             // Cross-fade fluido: inicia fade-out do expandido e entrada do painel Wi-Fi
+            ClearExpandedPanelCache();
             AnimatePanelOut(expandedIslandPanel);
             AnimatePanelIn(wifiPanel, slideDistance: 12, delayMs: 40);
 
