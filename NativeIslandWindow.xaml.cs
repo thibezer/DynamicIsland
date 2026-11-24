@@ -108,7 +108,7 @@ namespace DynamicIslandWindows
         private const int  DRAGLEAVE_DELAY_MS    = 150;
 
         // Dimensões físicas lógicas finais do widget (sincronizadas e sem saltos)
-        private const double ISLAND_OPEN_W       = 410;
+        private const double ISLAND_OPEN_W       = 408;
         private const double ISLAND_OPEN_H       = 400;
         private const double ISLAND_APPEARANCE_H = 300;
         private const double DROPZONE_W          = 320;
@@ -805,8 +805,8 @@ namespace DynamicIslandWindows
 
             // Performance: fixa a largura do painel (sem relayout por frame enquanto a borda cresce)
             // e rasteriza o conteúdo uma única vez (fade/slide viram operações baratas de GPU).
-            // Com islandBorder.Padding lateral = 6px, a área útil fica em 398px (5px de folga por lado
-            // ao redor do conteúdo de 388px), evitando clipping de ScaleTransform pelo BitmapCache.
+            // Com islandBorder.Padding lateral = 6px, a área útil fica em 396px (4px de folga por lado
+            // ao redor do conteúdo de 388px, totalizando 10px de margem exata e concêntrica), evitando clipping de ScaleTransform pelo BitmapCache.
             expandedIslandPanel.HorizontalAlignment = HorizontalAlignment.Center;
             expandedIslandPanel.Width = ISLAND_OPEN_W - (islandBorder.Padding.Left + islandBorder.Padding.Right);
             expandedIslandPanel.CacheMode = new BitmapCache(Math.Max(_dpiX, 1.0)) { EnableClearType = true };

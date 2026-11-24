@@ -283,10 +283,11 @@
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10">
             <!-- islandBorder: A casca escura principal da Dynamic Island.
                  REGRA ANTI-CORTE (Tactile Scale Bleed):
-                 Padding lateral = 6px (não 10px) para que a área interna tenha 398px (410 - 12),
-                 garantindo 5px de folga de cada lado ao redor dos painéis de 388px.
-                 Isso preserva o recuo visual concêntrico de ~11px em repouso (6 + 5) e impede
-                 que ScaleTransform (hover 1.02x / BackEase ~1.05x) ou BitmapCache cortem botões das bordas. -->
+                 Padding lateral = 6px (não 10px) para que a área interna tenha 396px (408 - 12),
+                 garantindo 4px de folga de cada lado ao redor dos painéis de 388px.
+                 Isso garante exatamente 10px de margem lateral (idêntica aos 10px do topo)
+                 para concêntricidade perfeita (22.5 - 10 = 12.5) e impede que ScaleTransform
+                 (hover 1.02x / BackEase) ou BitmapCache cortem botões das bordas. -->
             <Border Name="islandBorder"
                     Background="{DynamicResource IslandBackgroundBrush}"
                     CornerRadius="22.5"
@@ -568,7 +569,7 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     
-                    <!-- Row 0: Grade de Toggles Rápidos (2px no topo para bleed de ScaleY; 5px laterais dentro dos 398px úteis) -->
+                    <!-- Row 0: Grade de Toggles Rápidos (2px no topo para bleed de ScaleY; 4px laterais dentro dos 396px úteis) -->
                     <Grid Grid.Row="0" Margin="0,2,0,5" Width="388" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="126" />
